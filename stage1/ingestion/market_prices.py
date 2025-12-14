@@ -46,3 +46,34 @@ def fetch_market_prices() -> Dict[str, List[float]]:
     for asset in assets:
         symbol = asset.get("symbol")
         endpoint = asset.get("endpoint")
+
+        if not symbol or not endpoint:
+            continue
+
+        url = f"{base_url}/{endpoint}"
+
+        try:
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+        except Exception:
+            # Degrade silently on API or parsing failure
+            continue
+
+        series = data.get(price_field)
+
+        if not isinstance(series, list):
+            continue
+
+        # Ensure numeric-only, ordered series
+        clean_series = []
+        for value in series:
+            try:
+                clean_series.append(float(value))
+            except (TypeError, ValueError):
+                continue
+
+        if clean_series:
+            prices[symbol] = clean_series
+
+    return prices
