@@ -16,8 +16,7 @@ scanning.
 
 ### Purpose:
 
-Stage 1 builds `trigger_context.json` using the maximum amount of
-cost-free intelligence available.
+Stage 1 builds trigger context using the maximum amount of cost-free intelligence available.
 
 ------------------------------------------------------------------------
 
@@ -39,7 +38,7 @@ Uses APIs with limited quotas or computationally heavy data.
 
 ### Purpose:
 
-Stage 2 builds `deep_results.json` using all advanced datasets.
+Stage 2 builds deep results using all advanced datasets.
 
 ------------------------------------------------------------------------
 
