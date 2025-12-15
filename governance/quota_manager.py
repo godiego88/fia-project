@@ -15,18 +15,18 @@ from supabase import create_client, Client
 
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY")
+SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
 
-if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
-    raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_KEY must be set")
+if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+    raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set")
 
 
 def _get_client() -> Client:
     """
-    Create a Supabase client using the service key.
-    The service key bypasses RLS by design (Supabase behavior).
+    Create a Supabase client using the service role key.
+    The service role key bypasses RLS by design (Supabase behavior).
     """
-    return create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+    return create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
 
 def get_usage_ratios() -> Dict[str, float]:
@@ -69,13 +69,6 @@ def is_allowed(resource_name: str, threshold: float = 0.95) -> bool:
 
     Rule (Execution Specification v1.1 FINAL):
     - Skip APIs >=95% usage
-
-    Args:
-        resource_name: Name of the API or LLM resource
-        threshold: Usage ratio at which the resource is blocked
-
-    Returns:
-        bool: True if allowed, False if blocked
     """
     usage = get_usage_ratios()
 
