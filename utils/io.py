@@ -1,24 +1,26 @@
 """
 FIA IO Utilities
 
-Deterministic loaders for configuration and schema files.
-Deterministic writers for Stage 1 trigger artifacts.
+Deterministic loaders and writers for configuration,
+schemas, and escalation artifacts.
 
-This module performs parsing and writing only:
-- no validation
-- no defaults
-- no branching logic
+This module performs parsing and explicit IO only.
+No validation, no defaults, no inference, no branching logic.
 """
 
 import json
 import yaml
-import uuid
-from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict
+from datetime import datetime
+import uuid
+
+from utils.state import save_last_run_id
 
 
-# ---------- internal helpers ----------
+# -------------------------
+# Internal helpers
+# -------------------------
 
 def _resolve_path(path: str) -> Path:
     """
@@ -27,11 +29,22 @@ def _resolve_path(path: str) -> Path:
     return Path(path).resolve()
 
 
-# ---------- loaders ----------
+# -------------------------
+# Public loaders
+# -------------------------
 
 def load_yaml_config(path: str) -> Dict[str, Any]:
     """
     Load a YAML configuration file.
+
+    Args:
+        path: Relative path to YAML file
+
+    Returns:
+        Parsed YAML content as a dictionary
+
+    Raises:
+        RuntimeError if file cannot be read or parsed
     """
     file_path = _resolve_path(path)
 
@@ -53,6 +66,15 @@ def load_yaml_config(path: str) -> Dict[str, Any]:
 def load_json_file(path: str) -> Dict[str, Any]:
     """
     Load a JSON file.
+
+    Args:
+        path: Relative path to JSON file
+
+    Returns:
+        Parsed JSON content as a dictionary
+
+    Raises:
+        RuntimeError if file cannot be read or parsed
     """
     file_path = _resolve_path(path)
 
@@ -63,7 +85,9 @@ def load_json_file(path: str) -> Dict[str, Any]:
         raise RuntimeError(f"Failed to load JSON file: {path}") from e
 
 
-# ---------- writers ----------
+# -------------------------
+# Escalation artifact writer
+# -------------------------
 
 def write_trigger_context(
     *,
@@ -72,25 +96,28 @@ def write_trigger_context(
     persistence_required: int,
     persistence_observed: int,
     components: Dict[str, Any],
-    strong_components: List[str],
+    strong_components: list[str],
     quant_breakdown: Dict[str, float],
     nlp_breakdown: Dict[str, float],
-    assets_analyzed: List[str],
-    assets_excluded: List[str],
+    assets_analyzed: list[str],
+    assets_excluded: list[str],
     reason_excluded: Dict[str, str],
-    degradations: List[str],
-    warnings: List[str],
+    degradations: list[str],
+    warnings: list[str],
 ) -> None:
     """
     Write Stage 1 trigger context to disk.
 
-    Called ONLY after escalation conditions are met.
-    No validation. No interpretation.
+    This function is called ONLY after escalation
+    conditions are already met. It performs no
+    validation, inference, or branching.
     """
+
+    run_id = str(uuid.uuid4())
 
     context = {
         "meta": {
-            "run_id": str(uuid.uuid4()),
+            "run_id": run_id,
             "timestamp_utc": datetime.utcnow().isoformat() + "Z",
             "stage": "stage1",
             "version": "1.1",
@@ -122,3 +149,6 @@ def write_trigger_context(
 
     with open("trigger_context.json", "w", encoding="utf-8") as f:
         json.dump(context, f, indent=2)
+
+    # HARD LINKAGE: persist run_id for auditability
+    save_last_run_id(run_id)
