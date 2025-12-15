@@ -1,101 +1,108 @@
 """
 Persistent State Utilities
 
-Minimal Supabase-backed persistence for Stage 1.
-Stores NTI persistence counter and last triggering run_id.
+Supabase-backed persistence for Stage 1.
+Tracks NTI persistence and last qualifying run timestamp.
 """
 
 import os
+from datetime import datetime, timedelta
 from typing import Optional
-from supabase import create_client
+
+from supabase import create_client, Client
 
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+
+if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+    raise RuntimeError("Supabase credentials must be set")
+
 
 PERSISTENCE_KEY = "nti_persistence"
-RUN_ID_KEY = "last_run_id"
+LAST_RUN_TS_KEY = "last_qualifying_run_ts"
+LAST_RUN_ID_KEY = "last_run_id"
+
+DECAY_WINDOW = timedelta(hours=24)
 
 
-def _get_client():
-    if not SUPABASE_URL or not SUPABASE_KEY:
-        return None
-    return create_client(SUPABASE_URL, SUPABASE_KEY)
+def _get_client() -> Client:
+    return create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
 
-def _load_int(key: str) -> int:
+def _load(key: str) -> Optional[str]:
     client = _get_client()
-    if client is None:
-        return 0
-
-    try:
-        resp = (
-            client
-            .table("stage1_state")
-            .select("value")
-            .eq("key", key)
-            .single()
-            .execute()
-        )
-        if resp.data and "value" in resp.data:
-            return int(resp.data["value"])
-    except Exception:
-        pass
-
-    return 0
-
-
-def _load_str(key: str) -> Optional[str]:
-    client = _get_client()
-    if client is None:
-        return None
-
-    try:
-        resp = (
-            client
-            .table("stage1_state")
-            .select("value")
-            .eq("key", key)
-            .single()
-            .execute()
-        )
-        if resp.data and "value" in resp.data:
-            return str(resp.data["value"])
-    except Exception:
-        pass
-
+    resp = (
+        client
+        .table("stage1_state")
+        .select("value")
+        .eq("key", key)
+        .single()
+        .execute()
+    )
+    if resp.data:
+        return resp.data["value"]
     return None
 
 
-def _save(key: str, value) -> None:
+def _save(key: str, value: str) -> None:
     client = _get_client()
-    if client is None:
-        return
-
-    try:
-        (
-            client
-            .table("stage1_state")
-            .upsert({"key": key, "value": value}, on_conflict="key")
-            .execute()
-        )
-    except Exception:
-        pass
+    client.table("stage1_state").upsert(
+        {"key": key, "value": value},
+        on_conflict="key",
+    ).execute()
 
 
-# ---------- Public API ----------
+# -------------------------
+# Persistence API
+# -------------------------
 
 def load_persistence() -> int:
-    return _load_int(PERSISTENCE_KEY)
+    raw = _load(PERSISTENCE_KEY)
+    if raw is None:
+        return 0
+    return int(raw)
 
 
 def save_persistence(value: int) -> None:
-    _save(PERSISTENCE_KEY, int(value))
+    _save(PERSISTENCE_KEY, str(value))
 
 
 def load_last_run_id() -> Optional[str]:
-    return _load_str(RUN_ID_KEY)
+    return _load(LAST_RUN_ID_KEY)
 
 
 def save_last_run_id(run_id: str) -> None:
-    _save(RUN_ID_KEY, run_id)
+    _save(LAST_RUN_ID_KEY, run_id)
+
+
+def _load_last_timestamp() -> Optional[datetime]:
+    raw = _load(LAST_RUN_TS_KEY)
+    if raw is None:
+        return None
+    return datetime.fromisoformat(raw)
+
+
+def _save_timestamp(ts: datetime) -> None:
+    _save(LAST_RUN_TS_KEY, ts.isoformat())
+
+
+def should_reset_persistence(now: datetime) -> bool:
+    """
+    Determine whether persistence should decay.
+
+    Persistence resets if the last qualifying run
+    is outside the decay window.
+    """
+    last_ts = _load_last_timestamp()
+    if last_ts is None:
+        return True
+
+    return (now - last_ts) > DECAY_WINDOW
+
+
+def mark_qualifying_run(now: datetime) -> None:
+    """
+    Record the timestamp of a qualifying Stage 1 run.
+    """
+    _save_timestamp(now)
