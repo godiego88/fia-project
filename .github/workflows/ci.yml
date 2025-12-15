@@ -1,0 +1,70 @@
+name: FIA Continuous Integrity
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  replay-stage2:
+    name: Stage 2 Replay Harness
+    runs-on: ubuntu-latest
+
+    steps:
+      # -------------------------
+      # Checkout repository
+      # -------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # -------------------------
+      # Check for trigger artifact
+      # -------------------------
+      - name: Check for trigger context
+        id: check_trigger
+        run: |
+          if [ -f trigger_context.json ]; then
+            echo "trigger_exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "trigger_exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      # -------------------------
+      # Exit silently if no trigger
+      # -------------------------
+      - name: No trigger — exit successfully
+        if: steps.check_trigger.outputs.trigger_exists == 'false'
+        run: |
+          echo "No trigger_context.json found. CI replay skipped (silence is success)."
+          exit 0
+
+      # -------------------------
+      # Set up Python
+      # -------------------------
+      - name: Set up Python
+        if: steps.check_trigger.outputs.trigger_exists == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # -------------------------
+      # Install dependencies
+      # -------------------------
+      - name: Install dependencies
+        if: steps.check_trigger.outputs.trigger_exists == 'true'
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest jsonschema requests supabase
+
+      # -------------------------
+      # Run replay harness
+      # -------------------------
+      - name: Run Stage 2 replay harness
+        if: steps.check_trigger.outputs.trigger_exists == 'true'
+        env:
+          PERPLEXITY_API_KEY: ${{ secrets.PERPLEXITY_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          pytest tests/replay/test_stage2_replay.py
