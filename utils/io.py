@@ -2,15 +2,23 @@
 FIA IO Utilities
 
 Deterministic loaders for configuration and schema files.
-This module performs parsing only — no validation, no defaults,
-no side effects.
+Deterministic writers for Stage 1 trigger artifacts.
+
+This module performs parsing and writing only:
+- no validation
+- no defaults
+- no branching logic
 """
 
 import json
 import yaml
+import uuid
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List
 
+
+# ---------- internal helpers ----------
 
 def _resolve_path(path: str) -> Path:
     """
@@ -19,18 +27,11 @@ def _resolve_path(path: str) -> Path:
     return Path(path).resolve()
 
 
+# ---------- loaders ----------
+
 def load_yaml_config(path: str) -> Dict[str, Any]:
     """
     Load a YAML configuration file.
-
-    Args:
-        path: Relative path to YAML file
-
-    Returns:
-        Parsed YAML content as a dictionary
-
-    Raises:
-        RuntimeError if file cannot be read or parsed
     """
     file_path = _resolve_path(path)
 
@@ -52,15 +53,6 @@ def load_yaml_config(path: str) -> Dict[str, Any]:
 def load_json_file(path: str) -> Dict[str, Any]:
     """
     Load a JSON file.
-
-    Args:
-        path: Relative path to JSON file
-
-    Returns:
-        Parsed JSON content as a dictionary
-
-    Raises:
-        RuntimeError if file cannot be read or parsed
     """
     file_path = _resolve_path(path)
 
@@ -69,3 +61,64 @@ def load_json_file(path: str) -> Dict[str, Any]:
             return json.load(f)
     except Exception as e:
         raise RuntimeError(f"Failed to load JSON file: {path}") from e
+
+
+# ---------- writers ----------
+
+def write_trigger_context(
+    *,
+    nti: float,
+    nti_threshold: float,
+    persistence_required: int,
+    persistence_observed: int,
+    components: Dict[str, Any],
+    strong_components: List[str],
+    quant_breakdown: Dict[str, float],
+    nlp_breakdown: Dict[str, float],
+    assets_analyzed: List[str],
+    assets_excluded: List[str],
+    reason_excluded: Dict[str, str],
+    degradations: List[str],
+    warnings: List[str],
+) -> None:
+    """
+    Write Stage 1 trigger context to disk.
+
+    Called ONLY after escalation conditions are met.
+    No validation. No interpretation.
+    """
+
+    context = {
+        "meta": {
+            "run_id": str(uuid.uuid4()),
+            "timestamp_utc": datetime.utcnow().isoformat() + "Z",
+            "stage": "stage1",
+            "version": "1.1",
+        },
+        "decision": {
+            "nti": nti,
+            "nti_threshold": nti_threshold,
+            "persistence_required": persistence_required,
+            "persistence_observed": persistence_observed,
+            "triggered": True,
+        },
+        "components": components,
+        "component_flags": {
+            "above_0_7": strong_components,
+            "missing": [k for k, v in components.items() if v is None],
+        },
+        "quant_breakdown": quant_breakdown,
+        "nlp_breakdown": nlp_breakdown,
+        "data_coverage": {
+            "assets_analyzed": assets_analyzed,
+            "assets_excluded": assets_excluded,
+            "reason_excluded": reason_excluded,
+        },
+        "notes": {
+            "degradations": degradations,
+            "warnings": warnings,
+        },
+    }
+
+    with open("trigger_context.json", "w", encoding="utf-8") as f:
+        json.dump(context, f, indent=2)
