@@ -19,13 +19,10 @@ from stage1.synthesis.nlp_aggregate import aggregate_n
 from stage1.synthesis.nti import compute_nti
 
 from utils.state import load_persistence, save_persistence
-from utils.io import load_yaml_config
+from utils.io import load_yaml_config, write_trigger_context
 
 
 def run_stage1() -> None:
-    """
-    Execute Stage 1 pipeline.
-    """
     prices = fetch_market_prices()
     if not prices:
         return
@@ -40,7 +37,6 @@ def run_stage1() -> None:
 
     q_components = {}
 
-    # Compute per-asset price signals
     price_scores = []
     vol_scores = []
     mr_scores = []
@@ -61,27 +57,46 @@ def run_stage1() -> None:
     if tail_scores:
         q_components["Q_tail"] = sum(tail_scores) / len(tail_scores)
 
-    # Correlation requires multi-asset input
     q_components["Q_corr"] = correlation_breakdown_signal(prices, corr_window)
 
     Q = aggregate_q(q_components)
 
-    # NLP components intentionally omitted until ingestion exists
+    # NLP ingestion not yet implemented → canonical degradation
     N = aggregate_n({})
 
     components = {
         "Q": Q,
         "N": N,
-        # S, P, F intentionally absent (canonical degradation)
+        "S": None,
+        "P": None,
+        "F": None,
     }
 
     persistence = load_persistence()
     nti, trigger, updated_persistence = compute_nti(components, persistence)
     save_persistence(updated_persistence)
 
+    strong_components = [
+        k for k, v in components.items()
+        if isinstance(v, (int, float)) and v >= 0.7
+    ]
+
     if trigger:
-        # Trigger context emission handled by Stage 2 workflow
-        return
+        write_trigger_context(
+            nti=nti,
+            nti_threshold=0.72,
+            persistence_required=2,
+            persistence_observed=updated_persistence,
+            components=components,
+            strong_components=strong_components,
+            quant_breakdown=q_components,
+            nlp_breakdown={},
+            assets_analyzed=list(prices.keys()),
+            assets_excluded=[],
+            reason_excluded={},
+            degradations=[],
+            warnings=[],
+        )
 
 
 if __name__ == "__main__":
