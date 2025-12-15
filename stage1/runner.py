@@ -1,103 +1,145 @@
 """
-FIA Stage 1 Runner
+Stage 1 Runner
 
-Authoritative orchestration entry point for Stage 1.
-Runs quant + classical NLP, computes NTI, and exits silently
-unless escalation conditions are met.
+Authoritative execution entrypoint for FIA Stage 1.
+Implements ingestion → quant → NLP → synthesis → NTI evaluation.
+
+Silence is the default outcome.
 """
 
-from stage1.ingestion.market_prices import fetch_market_prices
+import json
+import uuid
+from datetime import datetime
+from pathlib import Path
 
-from stage1.quant.price_zscore import price_zscore_signal
-from stage1.quant.volatility_regime import volatility_regime_signal
-from stage1.quant.correlation_breakdown import correlation_breakdown_signal
-from stage1.quant.mean_reversion import mean_reversion_signal
-from stage1.quant.tail_risk import tail_risk_signal
+from utils.state import (
+    load_persistence,
+    save_persistence,
+    should_reset_persistence,
+    mark_qualifying_run,
+    save_last_run_id,
+)
+from utils.io import load_yaml_config
+from utils.logging import get_logger
 
-from stage1.synthesis.quant_aggregate import aggregate_q
-from stage1.synthesis.nlp_aggregate import aggregate_n
+from stage1.ingestion.market_prices import load_market_prices
+from stage1.quant.quant_engine import run_quant_analysis
+from stage1.nlp.nlp_engine import run_nlp_analysis
 from stage1.synthesis.nti import compute_nti
 
-from utils.state import load_persistence, save_persistence
-from utils.io import load_yaml_config, write_trigger_context
+
+LOGGER = get_logger("stage1-runner")
 
 
-def run_stage1() -> None:
-    prices = fetch_market_prices()
+def main() -> None:
+    """
+    Execute Stage 1 exactly once.
+    """
+
+    run_id = str(uuid.uuid4())
+    now = datetime.utcnow()
+
+    LOGGER.info("Stage 1 run started", extra={"run_id": run_id})
+    save_last_run_id(run_id)
+
+    # -------------------------
+    # Load configuration
+    # -------------------------
+    assets_cfg = load_yaml_config("config/assets.yaml")
+    nti_cfg = load_yaml_config("config/nt_thresholds.yaml")
+
+    # -------------------------
+    # Ingestion
+    # -------------------------
+    prices = load_market_prices(assets_cfg)
+
     if not prices:
+        LOGGER.warning("No market data available — silent exit")
         return
 
-    config = load_yaml_config("config/nt_thresholds.yaml")
+    # -------------------------
+    # Quant analysis
+    # -------------------------
+    quant_results = run_quant_analysis(prices)
 
-    horizons = config.get("price_horizons", [])
-    vol_realized = config.get("vol_realized_window", 20)
-    vol_ema = config.get("vol_ema_window", 20)
-    mr_window = config.get("mean_reversion_window", 20)
-    corr_window = config.get("correlation_window", 20)
+    # -------------------------
+    # NLP analysis
+    # -------------------------
+    nlp_results = run_nlp_analysis(assets_cfg)
 
-    q_components = {}
+    # -------------------------
+    # NTI computation
+    # -------------------------
+    nti_result = compute_nti(
+        quant_results=quant_results,
+        nlp_results=nlp_results,
+        nti_cfg=nti_cfg,
+    )
 
-    price_scores = []
-    vol_scores = []
-    mr_scores = []
-    tail_scores = []
+    nti_value = nti_result["nti"]
+    nti_components = nti_result["components"]
+    nti_qualifies = nti_result["qualifies"]
 
-    for series in prices.values():
-        price_scores.append(price_zscore_signal(series, horizons))
-        vol_scores.append(volatility_regime_signal(series, vol_realized, vol_ema))
-        mr_scores.append(mean_reversion_signal(series, mr_window))
-        tail_scores.append(tail_risk_signal(series))
+    LOGGER.info(
+        "NTI computed",
+        extra={
+            "nti": nti_value,
+            "qualifies": nti_qualifies,
+            "components": nti_components,
+        },
+    )
 
-    if price_scores:
-        q_components["Q_price"] = sum(price_scores) / len(price_scores)
-    if vol_scores:
-        q_components["Q_vol"] = sum(vol_scores) / len(vol_scores)
-    if mr_scores:
-        q_components["Q_mr"] = sum(mr_scores) / len(mr_scores)
-    if tail_scores:
-        q_components["Q_tail"] = sum(tail_scores) / len(tail_scores)
-
-    q_components["Q_corr"] = correlation_breakdown_signal(prices, corr_window)
-
-    Q = aggregate_q(q_components)
-
-    # NLP ingestion not yet implemented → canonical degradation
-    N = aggregate_n({})
-
-    components = {
-        "Q": Q,
-        "N": N,
-        "S": None,
-        "P": None,
-        "F": None,
-    }
-
+    # -------------------------
+    # Persistence logic (CANONICAL)
+    # -------------------------
     persistence = load_persistence()
-    nti, trigger, updated_persistence = compute_nti(components, persistence)
-    save_persistence(updated_persistence)
 
-    strong_components = [
-        k for k, v in components.items()
-        if isinstance(v, (int, float)) and v >= 0.7
-    ]
+    # Enforce decay before using persistence
+    if should_reset_persistence(now):
+        LOGGER.info("Persistence decayed — resetting")
+        persistence = 0
 
-    if trigger:
-        write_trigger_context(
-            nti=nti,
-            nti_threshold=0.72,
-            persistence_required=2,
-            persistence_observed=updated_persistence,
-            components=components,
-            strong_components=strong_components,
-            quant_breakdown=q_components,
-            nlp_breakdown={},
-            assets_analyzed=list(prices.keys()),
-            assets_excluded=[],
-            reason_excluded={},
-            degradations=[],
-            warnings=[],
-        )
+    if nti_qualifies:
+        persistence += 1
+        mark_qualifying_run(now)
+    else:
+        persistence = 0
+
+    save_persistence(persistence)
+
+    LOGGER.info(
+        "Persistence updated",
+        extra={"persistence": persistence},
+    )
+
+    # -------------------------
+    # Trigger decision
+    # -------------------------
+    if (
+        nti_value >= nti_cfg["trigger_threshold"]
+        and persistence >= nti_cfg["required_persistence"]
+    ):
+        LOGGER.warning("Stage 2 trigger condition met")
+
+        trigger_context = {
+            "run_id": run_id,
+            "timestamp_utc": now.isoformat(),
+            "nti": nti_value,
+            "persistence": persistence,
+            "nti_components": nti_components,
+            "quant_results": quant_results,
+            "nlp_results": nlp_results,
+        }
+
+        output_path = Path("trigger_context.json")
+        with output_path.open("w", encoding="utf-8") as f:
+            json.dump(trigger_context, f, indent=2)
+
+        LOGGER.warning("Trigger context written")
+
+    else:
+        LOGGER.info("No trigger — silent exit")
 
 
 if __name__ == "__main__":
-    run_stage1()
+    main()
