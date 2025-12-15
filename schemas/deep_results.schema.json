@@ -1,0 +1,170 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "FIA Stage 2 Deep Results",
+  "type": "object",
+  "required": [
+    "meta",
+    "orchestrator",
+    "critic",
+    "synthesis",
+    "final_assessment"
+  ],
+  "additionalProperties": false,
+
+  "properties": {
+    "meta": {
+      "type": "object",
+      "required": [
+        "run_id",
+        "stage1_run_id",
+        "timestamp_utc",
+        "model",
+        "version"
+      ],
+      "properties": {
+        "run_id": {
+          "type": "string",
+          "description": "Unique identifier for this Stage 2 run"
+        },
+        "stage1_run_id": {
+          "type": "string",
+          "description": "Run ID from triggering Stage 1 context"
+        },
+        "timestamp_utc": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "model": {
+          "type": "string",
+          "description": "LLM model used for this run"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "orchestrator": {
+      "type": "object",
+      "required": [
+        "focus_areas",
+        "dismiss_signal",
+        "rationale"
+      ],
+      "properties": {
+        "focus_areas": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Key dimensions selected for deeper analysis"
+        },
+        "dismiss_signal": {
+          "type": "boolean",
+          "description": "Whether the signal should be discarded immediately"
+        },
+        "rationale": {
+          "type": "string",
+          "description": "Reasoning for focus or dismissal"
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "critic": {
+      "type": "object",
+      "required": [
+        "validity_challenges",
+        "alternative_explanations",
+        "confidence_penalties",
+        "kill_signal"
+      ],
+      "properties": {
+        "validity_challenges": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Arguments questioning the signal"
+        },
+        "alternative_explanations": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Non-regime explanations for observed behavior"
+        },
+        "confidence_penalties": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Reasons to reduce confidence"
+        },
+        "kill_signal": {
+          "type": "boolean",
+          "description": "True if the signal should be rejected"
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "synthesis": {
+      "type": "object",
+      "required": [
+        "causal_hypotheses",
+        "regime_implications",
+        "cross_asset_links",
+        "uncertainties"
+      ],
+      "properties": {
+        "causal_hypotheses": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Plausible causal mechanisms"
+        },
+        "regime_implications": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "What regime shift this may indicate"
+        },
+        "cross_asset_links": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Connections across markets or asset classes"
+        },
+        "uncertainties": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Known unknowns and limits of inference"
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "final_assessment": {
+      "type": "object",
+      "required": [
+        "signal_status",
+        "confidence_level",
+        "recommended_attention",
+        "explanation"
+      ],
+      "properties": {
+        "signal_status": {
+          "type": "string",
+          "enum": ["confirmed", "weakened", "rejected"],
+          "description": "Final determination after adversarial review"
+        },
+        "confidence_level": {
+          "type": "string",
+          "enum": ["low", "medium", "high"],
+          "description": "Qualitative confidence only (no numeric scores)"
+        },
+        "recommended_attention": {
+          "type": "string",
+          "enum": ["monitor", "watchlist", "escalate"],
+          "description": "What the system should do next"
+        },
+        "explanation": {
+          "type": "string",
+          "description": "Human-readable synthesis explaining the decision"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
