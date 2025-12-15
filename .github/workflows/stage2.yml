@@ -1,0 +1,84 @@
+name: FIA Stage 2 — Deep Intelligence
+
+on:
+  workflow_run:
+    workflows: ["FIA Stage 1"]
+    types:
+      - completed
+
+jobs:
+  stage2:
+    if: >
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # -------------------------
+      # Download Stage 1 artifact
+      # -------------------------
+      - name: Download trigger context
+        uses: actions/download-artifact@v4
+        with:
+          name: trigger-context
+          path: .
+
+      - name: Verify trigger context exists
+        run: |
+          if [ ! -f trigger_context.json ]; then
+            echo "No trigger_context.json found. Exiting Stage 2 silently."
+            exit 0
+          fi
+
+      # -------------------------
+      # Set up Python
+      # -------------------------
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests jsonschema supabase
+
+      # -------------------------
+      # Run Stage 2 orchestration
+      # -------------------------
+      - name: Run Stage 2 Orchestrator
+        env:
+          PERPLEXITY_API_KEY: ${{ secrets.PERPLEXITY_API_KEY }}
+        run: |
+          python stage2/orchestrator.py
+
+      # -------------------------
+      # Validate deep results schema
+      # -------------------------
+      - name: Validate deep results schema
+        run: |
+          python - << 'EOF'
+          import json
+          from jsonschema import validate
+          from pathlib import Path
+
+          with open("deep_results.json", "r", encoding="utf-8") as f:
+              data = json.load(f)
+
+          with open("schemas/deep_results.schema.json", "r", encoding="utf-8") as f:
+              schema = json.load(f)
+
+          validate(instance=data, schema=schema)
+          print("Schema validation passed.")
+          EOF
+
+      # -------------------------
+      # Upload Stage 2 artifact
+      # -------------------------
+      - name: Upload deep results
+        uses: actions/upload-artifact@v4
+        with:
+          name: deep-results
+          path: deep_results.json
