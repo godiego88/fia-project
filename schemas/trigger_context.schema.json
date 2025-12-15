@@ -1,0 +1,138 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "FIA Stage 1 Trigger Context",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "meta",
+    "decision",
+    "components",
+    "component_flags",
+    "quant_breakdown",
+    "nlp_breakdown",
+    "data_coverage",
+    "notes"
+  ],
+  "properties": {
+    "meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run_id", "timestamp_utc", "stage", "version"],
+      "properties": {
+        "run_id": { "type": "string" },
+        "timestamp_utc": { "type": "string", "format": "date-time" },
+        "stage": { "type": "string", "enum": ["stage1"] },
+        "version": { "type": "string" }
+      }
+    },
+
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "nti",
+        "nti_threshold",
+        "persistence_required",
+        "persistence_observed",
+        "triggered"
+      ],
+      "properties": {
+        "nti": { "type": "number", "minimum": 0, "maximum": 1 },
+        "nti_threshold": { "type": "number" },
+        "persistence_required": { "type": "integer", "minimum": 1 },
+        "persistence_observed": { "type": "integer", "minimum": 0 },
+        "triggered": { "type": "boolean" }
+      }
+    },
+
+    "components": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["Q", "N", "S", "P", "F"],
+      "properties": {
+        "Q": { "type": "number", "minimum": 0, "maximum": 1 },
+        "N": { "type": "number", "minimum": 0, "maximum": 1 },
+        "S": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "P": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "F": { "type": ["number", "null"], "minimum": 0, "maximum": 1 }
+      }
+    },
+
+    "component_flags": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["above_0_7", "missing"],
+      "properties": {
+        "above_0_7": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["Q", "N", "S", "P", "F"] }
+        },
+        "missing": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["Q", "N", "S", "P", "F"] }
+        }
+      }
+    },
+
+    "quant_breakdown": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["Q_price", "Q_vol", "Q_corr", "Q_mr", "Q_tail"],
+      "properties": {
+        "Q_price": { "type": "number", "minimum": 0, "maximum": 1 },
+        "Q_vol": { "type": "number", "minimum": 0, "maximum": 1 },
+        "Q_corr": { "type": "number", "minimum": 0, "maximum": 1 },
+        "Q_mr": { "type": "number", "minimum": 0, "maximum": 1 },
+        "Q_tail": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+
+    "nlp_breakdown": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["N_relevance", "N_burst", "N_sent", "N_conflict"],
+      "properties": {
+        "N_relevance": { "type": "number", "minimum": 0, "maximum": 1 },
+        "N_burst": { "type": "number", "minimum": 0, "maximum": 1 },
+        "N_sent": { "type": "number", "minimum": 0, "maximum": 1 },
+        "N_conflict": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+
+    "data_coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["assets_analyzed", "assets_excluded", "reason_excluded"],
+      "properties": {
+        "assets_analyzed": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "assets_excluded": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "reason_excluded": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+
+    "notes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["degradations", "warnings"],
+      "properties": {
+        "degradations": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "warnings": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  }
+}
