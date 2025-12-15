@@ -1,18 +1,20 @@
 """
 Persistent State Utilities
 
-Provides minimal persistence for Stage 1 across executions.
-Currently supports NTI persistence counter only.
+Minimal Supabase-backed persistence for Stage 1.
+Stores NTI persistence counter and last triggering run_id.
 """
 
 import os
+from typing import Optional
 from supabase import create_client
 
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
-STATE_KEY = "nti_persistence"
+PERSISTENCE_KEY = "nti_persistence"
+RUN_ID_KEY = "last_run_id"
 
 
 def _get_client():
@@ -21,11 +23,7 @@ def _get_client():
     return create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
-def load_persistence() -> int:
-    """
-    Load NTI persistence counter.
-    Defaults to 0 on any failure.
-    """
+def _load_int(key: str) -> int:
     client = _get_client()
     if client is None:
         return 0
@@ -35,11 +33,10 @@ def load_persistence() -> int:
             client
             .table("stage1_state")
             .select("value")
-            .eq("key", STATE_KEY)
+            .eq("key", key)
             .single()
             .execute()
         )
-
         if resp.data and "value" in resp.data:
             return int(resp.data["value"])
     except Exception:
@@ -48,11 +45,29 @@ def load_persistence() -> int:
     return 0
 
 
-def save_persistence(value: int) -> None:
-    """
-    Save NTI persistence counter.
-    Fails silently.
-    """
+def _load_str(key: str) -> Optional[str]:
+    client = _get_client()
+    if client is None:
+        return None
+
+    try:
+        resp = (
+            client
+            .table("stage1_state")
+            .select("value")
+            .eq("key", key)
+            .single()
+            .execute()
+        )
+        if resp.data and "value" in resp.data:
+            return str(resp.data["value"])
+    except Exception:
+        pass
+
+    return None
+
+
+def _save(key: str, value) -> None:
     client = _get_client()
     if client is None:
         return
@@ -61,11 +76,26 @@ def save_persistence(value: int) -> None:
         (
             client
             .table("stage1_state")
-            .upsert(
-                {"key": STATE_KEY, "value": int(value)},
-                on_conflict="key",
-            )
+            .upsert({"key": key, "value": value}, on_conflict="key")
             .execute()
         )
     except Exception:
         pass
+
+
+# ---------- Public API ----------
+
+def load_persistence() -> int:
+    return _load_int(PERSISTENCE_KEY)
+
+
+def save_persistence(value: int) -> None:
+    _save(PERSISTENCE_KEY, int(value))
+
+
+def load_last_run_id() -> Optional[str]:
+    return _load_str(RUN_ID_KEY)
+
+
+def save_last_run_id(run_id: str) -> None:
+    _save(RUN_ID_KEY, run_id)
