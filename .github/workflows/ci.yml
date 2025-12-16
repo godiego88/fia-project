@@ -7,8 +7,8 @@ on:
     branches: [ "main" ]
 
 jobs:
-  replay-stage2:
-    name: Stage 2 Replay Harness
+  replay-stage1:
+    name: Stage 1 Replay Harness
     runs-on: ubuntu-latest
 
     steps:
@@ -19,8 +19,63 @@ jobs:
         uses: actions/checkout@v4
 
       # -------------------------
-      # Check for trigger artifact
+      # Check for Stage 1 replay fixtures
       # -------------------------
+      - name: Check for Stage 1 replay fixtures
+        id: check_stage1_replay
+        run: |
+          if [ -d tests/replay/fixtures ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      # -------------------------
+      # Exit silently if no fixtures
+      # -------------------------
+      - name: No Stage 1 replay fixtures — exit successfully
+        if: steps.check_stage1_replay.outputs.exists == 'false'
+        run: |
+          echo "No Stage 1 replay fixtures found. Skipping Stage 1 replay (silence is success)."
+          exit 0
+
+      # -------------------------
+      # Set up Python
+      # -------------------------
+      - name: Set up Python
+        if: steps.check_stage1_replay.outputs.exists == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # -------------------------
+      # Install dependencies
+      # -------------------------
+      - name: Install dependencies
+        if: steps.check_stage1_replay.outputs.exists == 'true'
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest jsonschema requests supabase pyyaml
+
+      # -------------------------
+      # Run Stage 1 replay harness
+      # -------------------------
+      - name: Run Stage 1 replay harness
+        if: steps.check_stage1_replay.outputs.exists == 'true'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          pytest tests/replay/test_stage1_replay.py
+
+  replay-stage2:
+    name: Stage 2 Replay Harness
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Check for trigger context
         id: check_trigger
         run: |
@@ -30,36 +85,24 @@ jobs:
             echo "trigger_exists=false" >> $GITHUB_OUTPUT
           fi
 
-      # -------------------------
-      # Exit silently if no trigger
-      # -------------------------
       - name: No trigger — exit successfully
         if: steps.check_trigger.outputs.trigger_exists == 'false'
         run: |
-          echo "No trigger_context.json found. CI replay skipped (silence is success)."
+          echo "No trigger_context.json found. Skipping Stage 2 replay (silence is success)."
           exit 0
 
-      # -------------------------
-      # Set up Python
-      # -------------------------
       - name: Set up Python
         if: steps.check_trigger.outputs.trigger_exists == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      # -------------------------
-      # Install dependencies
-      # -------------------------
       - name: Install dependencies
         if: steps.check_trigger.outputs.trigger_exists == 'true'
         run: |
           python -m pip install --upgrade pip
           pip install pytest jsonschema requests supabase
 
-      # -------------------------
-      # Run replay harness
-      # -------------------------
       - name: Run Stage 2 replay harness
         if: steps.check_trigger.outputs.trigger_exists == 'true'
         env:
