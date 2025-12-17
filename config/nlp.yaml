@@ -1,0 +1,26 @@
+# FIA Stage 1 — Classical NLP Configuration
+
+sources:
+  - name: financial_headlines
+    enabled: true
+    weight: 1.0
+
+processing:
+  method: tfidf
+  ngram_range: [1, 2]
+  max_features: 5000
+  stop_words: english
+  lowercase: true
+
+similarity:
+  metric: cosine
+  anomaly_threshold: 0.92
+
+signals:
+  enable_anomaly_detection: true
+  enable_topic_shift: true
+  enable_sentiment: false
+
+output:
+  normalize_score: true
+  clip_range: [0.0, 1.0]
