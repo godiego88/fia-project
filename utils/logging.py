@@ -1,25 +1,24 @@
 """
 Logging utilities for FIA.
 
-Provides structured, deterministic logging.
-Silence is the default.
+Provides deterministic, minimal logging.
+Silence is the correct default behavior.
 """
 
 import logging
-from typing import Optional
 
 
-def get_logger(name: str, level: int = logging.INFO) -> logging.Logger:
+def get_logger(name: str) -> logging.Logger:
     logger = logging.getLogger(name)
 
     if logger.handlers:
         return logger
 
-    logger.setLevel(level)
+    logger.setLevel(logging.INFO)
 
     handler = logging.StreamHandler()
     formatter = logging.Formatter(
-        fmt="%(asctime)s | %(name)s | %(levelname)s | %(message)s"
+        "%(asctime)s | %(name)s | %(levelname)s | %(message)s"
     )
     handler.setFormatter(formatter)
 
