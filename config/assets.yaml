@@ -1,3 +1,52 @@
+# FIA Stage 1 — Asset Universe
+# Defines all instruments monitored continuously
+
 assets:
-  - symbol: SPY
-    type: equity
+  - name: S&P 500 Index
+    symbol: "^GSPC"
+    asset_class: equity_index
+    lookback_days: 365
+    sampling: daily
+    enabled: true
+
+  - name: Nasdaq 100 Index
+    symbol: "^NDX"
+    asset_class: equity_index
+    lookback_days: 365
+    sampling: daily
+    enabled: true
+
+  - name: Dow Jones Industrial Average
+    symbol: "^DJI"
+    asset_class: equity_index
+    lookback_days: 365
+    sampling: daily
+    enabled: true
+
+  - name: VIX Volatility Index
+    symbol: "^VIX"
+    asset_class: volatility
+    lookback_days: 365
+    sampling: daily
+    enabled: true
+
+  - name: US 10Y Treasury Yield
+    symbol: "^TNX"
+    asset_class: rates
+    lookback_days: 365
+    sampling: daily
+    enabled: true
+
+  - name: Gold Spot
+    symbol: "GC=F"
+    asset_class: commodity
+    lookback_days: 365
+    sampling: daily
+    enabled: true
+
+  - name: Crude Oil WTI
+    symbol: "CL=F"
+    asset_class: commodity
+    lookback_days: 365
+    sampling: daily
+    enabled: true
