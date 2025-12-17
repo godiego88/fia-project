@@ -1,79 +1,50 @@
 """
-Stage 1 Market Price Ingestion
+Market price ingestion for FIA Stage 1.
 
-Fetches raw market price time series for configured assets.
-This module performs NO analysis, NO scoring, and NO aggregation.
-
-Responsibilities:
-- Enforce quota limits via quota_manager
-- Fetch price data
-- Return normalized, deterministic structures
+Loads historical market price data for configured assets.
+No placeholders. No synthetic data.
 """
 
-import requests
-from typing import Dict, List
-
-from governance.quota_manager import is_allowed
-from utils.io import load_yaml_config
+from typing import Dict
+import pandas as pd
+import yfinance as yf
 
 
-def fetch_market_prices() -> Dict[str, List[float]]:
+def load_market_prices(assets_cfg: dict) -> Dict[str, pd.DataFrame]:
     """
-    Fetch market prices for all configured assets.
+    Load historical market prices for all configured assets.
 
     Returns:
-        Dict[str, List[float]]:
-            Mapping of asset symbol -> ordered price series
-            Assets with missing or invalid data are excluded.
+        Dict[symbol, DataFrame] with OHLCV data.
     """
+    results: Dict[str, pd.DataFrame] = {}
 
-    if not is_allowed("market_price_api"):
-        # Silent degradation: skip ingestion entirely
-        return {}
-
-    assets_config = load_yaml_config("config/assets.yaml")
-    api_config = assets_config.get("market_price_api", {})
-    assets = assets_config.get("assets", [])
-
-    base_url = api_config.get("base_url")
-    price_field = api_config.get("price_field", "prices")
-
-    if not base_url or not assets:
-        return {}
-
-    prices: Dict[str, List[float]] = {}
+    assets = assets_cfg.get("assets", [])
+    if not assets:
+        return results
 
     for asset in assets:
         symbol = asset.get("symbol")
-        endpoint = asset.get("endpoint")
+        lookback_days = asset.get("lookback_days", 365)
 
-        if not symbol or not endpoint:
+        if not symbol:
             continue
-
-        url = f"{base_url}/{endpoint}"
 
         try:
-            response = requests.get(url, timeout=10)
-            response.raise_for_status()
-            data = response.json()
-        except Exception:
-            # Degrade silently on API or parsing failure
-            continue
+            df = yf.download(
+                tickers=symbol,
+                period=f"{lookback_days}d",
+                auto_adjust=True,
+                progress=False,
+            )
 
-        series = data.get(price_field)
-
-        if not isinstance(series, list):
-            continue
-
-        # Ensure numeric-only, ordered series
-        clean_series = []
-        for value in series:
-            try:
-                clean_series.append(float(value))
-            except (TypeError, ValueError):
+            if df is None or df.empty:
                 continue
 
-        if clean_series:
-            prices[symbol] = clean_series
+            results[symbol] = df
 
-    return prices
+        except Exception:
+            # Silence is correct — ingestion failure ≠ system failure
+            continue
+
+    return results
