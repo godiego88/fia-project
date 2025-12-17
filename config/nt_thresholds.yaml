@@ -1,0 +1,25 @@
+# FIA Stage 1 — NTI Threshold Configuration
+# Defines when silence breaks
+
+# Minimum NTI score for a single run to qualify
+qualify_threshold: 0.65
+
+# NTI score required to trigger Stage 2
+trigger_threshold: 0.85
+
+# Number of qualifying runs required before trigger
+required_persistence: 3
+
+# Component weighting (must sum logically, not numerically)
+weights:
+  volatility_cluster: 0.35
+  cross_asset_correlation: 0.25
+  tail_risk_proxy: 0.25
+  nlp_anomaly_signal: 0.15
+
+# Hard safety limits
+limits:
+  max_nti: 1.0
+  min_nti: 0.0
+
+# Persistence decay handled in code (24h window)
