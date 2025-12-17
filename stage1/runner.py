@@ -11,6 +11,9 @@ import json
 import uuid
 from datetime import datetime
 from pathlib import Path
+from typing import Dict
+
+import pandas as pd
 
 from utils.state import (
     load_persistence,
@@ -31,6 +34,57 @@ from stage1.synthesis.nti import compute_nti
 LOGGER = get_logger("stage1-runner")
 
 
+def _safe_float(value) -> float:
+    """
+    Convert pandas / numpy scalars to float safely.
+    Fixes FutureWarning properly.
+    """
+    if isinstance(value, pd.Series):
+        return float(value.iloc[0])
+    return float(value)
+
+
+def _synthesize_nti_components(
+    quant_results: Dict,
+    nlp_results: Dict,
+) -> Dict[str, float]:
+    """
+    Synthesize canonical NTI components (Q, S, N, P, F)
+    from Stage 1 quant + NLP outputs.
+
+    NTI math and triggering remain fully inside nti.py.
+    """
+
+    components: Dict[str, float] = {}
+
+    # Q — Quantitative stress proxy (mean volatility, normalized)
+    vol_values = [
+        _safe_float(v["volatility"])
+        for v in quant_results.values()
+        if isinstance(v, dict) and "volatility" in v
+    ]
+    components["Q"] = min(1.0, sum(vol_values) / len(vol_values)) if vol_values else 0.0
+
+    # S — Structural signal (not yet implemented → neutral, explicit)
+    components["S"] = 0.0
+
+    # N — NLP anomaly signal (max normalized score)
+    nlp_values = [
+        _safe_float(v)
+        for v in nlp_results.values()
+        if isinstance(v, (int, float))
+    ]
+    components["N"] = max(nlp_values) if nlp_values else 0.0
+
+    # P — Persistence proxy (handled canonically inside NTI)
+    components["P"] = 0.0
+
+    # F — Fragility proxy (not yet implemented → neutral, explicit)
+    components["F"] = 0.0
+
+    return components
+
+
 def main() -> None:
     """
     Execute Stage 1 exactly once.
@@ -46,7 +100,6 @@ def main() -> None:
     # Load configuration
     # -------------------------
     assets_cfg = load_yaml_config("config/assets.yaml")
-    nti_cfg = load_yaml_config("config/nt_thresholds.yaml")
 
     # -------------------------
     # Ingestion
@@ -68,65 +121,55 @@ def main() -> None:
     nlp_results = run_nlp_analysis(assets_cfg)
 
     # -------------------------
-    # NTI computation
+    # NTI component synthesis
     # -------------------------
-    nti_result = compute_nti(
+    components = _synthesize_nti_components(
         quant_results=quant_results,
         nlp_results=nlp_results,
-        nti_cfg=nti_cfg,
     )
 
-    nti_value = nti_result["nti"]
-    nti_components = nti_result["components"]
-    nti_qualifies = nti_result["qualifies"]
+    # -------------------------
+    # Persistence (pre-NTI)
+    # -------------------------
+    persistence = load_persistence()
+
+    if should_reset_persistence(now):
+        LOGGER.info("Persistence decayed — resetting")
+        persistence = 0
+
+    # -------------------------
+    # NTI computation (CANONICAL)
+    # -------------------------
+    nti_value, trigger, updated_persistence = compute_nti(
+        components=components,
+        persistence_count=persistence,
+    )
+
+    save_persistence(updated_persistence)
 
     LOGGER.info(
         "NTI computed",
         extra={
             "nti": nti_value,
-            "qualifies": nti_qualifies,
-            "components": nti_components,
+            "trigger": trigger,
+            "components": components,
+            "persistence": updated_persistence,
         },
     )
 
     # -------------------------
-    # Persistence logic (CANONICAL)
+    # Trigger handling
     # -------------------------
-    persistence = load_persistence()
-
-    # Enforce decay before using persistence
-    if should_reset_persistence(now):
-        LOGGER.info("Persistence decayed — resetting")
-        persistence = 0
-
-    if nti_qualifies:
-        persistence += 1
+    if trigger:
         mark_qualifying_run(now)
-    else:
-        persistence = 0
-
-    save_persistence(persistence)
-
-    LOGGER.info(
-        "Persistence updated",
-        extra={"persistence": persistence},
-    )
-
-    # -------------------------
-    # Trigger decision
-    # -------------------------
-    if (
-        nti_value >= nti_cfg["trigger_threshold"]
-        and persistence >= nti_cfg["required_persistence"]
-    ):
         LOGGER.warning("Stage 2 trigger condition met")
 
         trigger_context = {
             "run_id": run_id,
             "timestamp_utc": now.isoformat(),
             "nti": nti_value,
-            "persistence": persistence,
-            "nti_components": nti_components,
+            "persistence": updated_persistence,
+            "components": components,
             "quant_results": quant_results,
             "nlp_results": nlp_results,
         }
