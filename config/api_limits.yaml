@@ -1,0 +1,27 @@
+# FIA Governance — API Limits
+# 100% free compute, hard stops enforced
+
+resources:
+  yahoo_finance:
+    resource_type: market_data
+    max_units_per_day: 500
+    hard_block_threshold: 0.95
+    enabled: true
+
+  perplexity:
+    resource_type: llm
+    max_units_per_month: 100
+    hard_block_threshold: 0.95
+    enabled: true
+
+  supabase:
+    resource_type: persistence
+    max_units_per_day: 10000
+    hard_block_threshold: 0.98
+    enabled: true
+
+# Global enforcement
+enforcement:
+  mode: strict
+  fail_closed: true
+  log_only_below_threshold: true
