@@ -12,12 +12,20 @@ from typing import Optional
 from supabase import create_client, Client
 
 
+# ---------------------------------------------------------------------
+# Environment
+# ---------------------------------------------------------------------
+
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
 if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
     raise RuntimeError("Supabase credentials must be set")
 
+
+# ---------------------------------------------------------------------
+# Keys & Constants
+# ---------------------------------------------------------------------
 
 PERSISTENCE_KEY = "nti_persistence"
 LAST_RUN_TS_KEY = "last_qualifying_run_ts"
@@ -26,36 +34,52 @@ LAST_RUN_ID_KEY = "last_run_id"
 DECAY_WINDOW = timedelta(hours=24)
 
 
+# ---------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------
+
 def _get_client() -> Client:
     return create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
 
 def _load(key: str) -> Optional[str]:
+    """
+    Load a value from stage1_state by key.
+
+    Returns None if the key does not yet exist.
+    This is REQUIRED behavior for first-ever runs.
+    """
     client = _get_client()
+
     resp = (
         client
         .table("stage1_state")
         .select("value")
         .eq("key", key)
-        .single()
         .execute()
     )
-    if resp.data:
-        return resp.data["value"]
+
+    if resp.data and len(resp.data) == 1:
+        return resp.data[0]["value"]
+
     return None
 
 
 def _save(key: str, value: str) -> None:
+    """
+    Upsert a key/value pair into stage1_state.
+    """
     client = _get_client()
+
     client.table("stage1_state").upsert(
         {"key": key, "value": value},
         on_conflict="key",
     ).execute()
 
 
-# -------------------------
-# Persistence API
-# -------------------------
+# ---------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------
 
 def load_persistence() -> int:
     raw = _load(PERSISTENCE_KEY)
@@ -89,20 +113,16 @@ def _save_timestamp(ts: datetime) -> None:
 
 def should_reset_persistence(now: datetime) -> bool:
     """
-    Determine whether persistence should decay.
-
-    Persistence resets if the last qualifying run
-    is outside the decay window.
+    Returns True if persistence should decay due to inactivity.
     """
     last_ts = _load_last_timestamp()
     if last_ts is None:
         return True
-
     return (now - last_ts) > DECAY_WINDOW
 
 
 def mark_qualifying_run(now: datetime) -> None:
     """
-    Record the timestamp of a qualifying Stage 1 run.
+    Record the timestamp of the most recent qualifying run.
     """
     _save_timestamp(now)
