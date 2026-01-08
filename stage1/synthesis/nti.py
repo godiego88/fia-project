@@ -1,70 +1,50 @@
 """
-Non-Triviality Index (NTI) Computation
+NTI Synthesis Engine
 
-Implements the canonical NTI formula and triggering rules
-defined in FIA Math Canon and Execution Specification v1.1 FINAL.
+Combines quantitative and NLP signals into a single
+Normalized Tension Index (NTI).
 """
 
-from typing import Dict, Tuple
-
-
-NTI_WEIGHTS = {
-    "Q": 0.30,
-    "S": 0.20,
-    "N": 0.20,
-    "P": 0.15,
-    "F": 0.15,
-}
-
-COMPONENT_THRESHOLD = 0.7
-NTI_TRIGGER_THRESHOLD = 0.72
-MIN_COMPONENTS_ABOVE_THRESHOLD = 3
+from typing import Dict
 
 
 def compute_nti(
-    components: Dict[str, float],
-    persistence_count: int,
-) -> Tuple[float, bool, int]:
-    """
-    Compute NTI and evaluate triggering conditions.
+    *,
+    quant_results: Dict,
+    nlp_results: Dict,
+    nti_cfg: Dict,
+) -> Dict:
+    if not quant_results:
+        raise RuntimeError("NTI computation failed: quant_results empty")
 
-    Args:
-        components: Mapping of component name -> value (Q, S, N, P, F)
-        persistence_count: Number of consecutive runs where
-                           conditions have been met previously
+    if not nlp_results:
+        raise RuntimeError("NTI computation failed: nlp_results empty")
 
-    Returns:
-        Tuple:
-            nti_value (float): Computed NTI score
-            trigger (bool): Whether Stage 2 should be triggered
-            updated_persistence_count (int)
-    """
-    nti = 0.0
-    valid_components = 0
+    quant_weight = nti_cfg["weights"]["quant"]
+    nlp_weight = nti_cfg["weights"]["nlp"]
 
-    for name, weight in NTI_WEIGHTS.items():
-        value = components.get(name)
-        if isinstance(value, (int, float)) and 0.0 <= value <= 1.0:
-            nti += weight * value
-            valid_components += 1
+    # Simple deterministic aggregation (Stage 1 baseline)
+    quant_score = sum(
+        v["volatility"] for v in quant_results.values()
+    ) / len(quant_results)
 
-    # Count strong components
-    strong_components = sum(
-        1 for v in components.values()
-        if isinstance(v, (int, float)) and v >= COMPONENT_THRESHOLD
-    )
+    nlp_score = sum(
+        v["score"] for v in nlp_results.values()
+    ) / len(nlp_results)
 
-    # Check non-triviality conditions
-    conditions_met = (
-        nti >= NTI_TRIGGER_THRESHOLD
-        and strong_components >= MIN_COMPONENTS_ABOVE_THRESHOLD
-    )
+    nti_value = (quant_score * quant_weight) + (nlp_score * nlp_weight)
 
-    if conditions_met:
-        persistence_count += 1
-    else:
-        persistence_count = 0
+    qualifies = nti_value >= nti_cfg["qualifying_threshold"]
 
-    trigger = conditions_met and persistence_count >= 2
-
-    return nti, trigger, persistence_count
+    return {
+        "nti": float(nti_value),
+        "qualifies": bool(qualifies),
+        "components": {
+            "quant_score": float(quant_score),
+            "nlp_score": float(nlp_score),
+            "weights": {
+                "quant": quant_weight,
+                "nlp": nlp_weight,
+            },
+        },
+    }
