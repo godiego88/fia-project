@@ -37,148 +37,111 @@ def main() -> None:
     LOGGER.info("Stage 1 run started", extra={"run_id": run_id})
     save_last_run_id(run_id)
 
-    # ------------------------------------------------------------------
-    # Load configs (HARD FAIL)
-    # ------------------------------------------------------------------
-    assets_cfg = load_yaml_config("config/assets.yaml")
-    nti_cfg = load_yaml_config("config/nt_thresholds.yaml")
-
-    # Validate NTI schema early (LOCKED CONTRACT)
-    required_nti_keys = {
-        "weights",
-        "trigger_threshold",
-        "required_persistence",
-    }
-    missing = required_nti_keys - nti_cfg.keys()
-    if missing:
-        raise RuntimeError(f"NTI config missing required keys: {missing}")
-
-    for w in ("quant", "nlp"):
-        if w not in nti_cfg["weights"]:
-            raise RuntimeError(f"NTI weights missing '{w}'")
-
-    # ------------------------------------------------------------------
-    # Resolve universe (HARD FAIL IF EMPTY)
-    # ------------------------------------------------------------------
-    universe = load_universe_from_google_sheets(assets_cfg)
-
-    if not universe:
-        raise RuntimeError("Resolved universe is empty")
-
-    LOGGER.info(
-        "Resolved securities universe",
-        extra={"count": len(universe), "tickers": universe},
-    )
-
-    # ------------------------------------------------------------------
-    # Market ingestion (PARTIAL FAIL ALLOWED)
-    # ------------------------------------------------------------------
-    prices = load_market_prices(universe)
-
-    if not prices:
-        raise RuntimeError("Market ingestion returned no usable data")
-
-    LOGGER.info(
-        "Market ingestion completed",
-        extra={"symbols_loaded": list(prices.keys())},
-    )
-
-    # ------------------------------------------------------------------
-    # Quant analysis (REQUIRED)
-    # ------------------------------------------------------------------
-    quant_results = run_quant_analysis(prices)
-    if not quant_results or "aggregate_signal" not in quant_results:
-        raise RuntimeError("Quant engine output incomplete")
-
-    # ------------------------------------------------------------------
-    # NLP analysis (REQUIRED)
-    # ------------------------------------------------------------------
-    nlp_results = run_nlp_analysis({"universe": universe})
-    if not nlp_results or "aggregate_signal" not in nlp_results:
-        raise RuntimeError("NLP engine output incomplete")
-
-    LOGGER.info("Quant and NLP analysis completed")
-
-    # ------------------------------------------------------------------
-    # NTI synthesis (STRICT CONTRACT)
-    # ------------------------------------------------------------------
-    nti_result = compute_nti(
-        quant_results=quant_results,
-        nlp_results=nlp_results,
-        nti_cfg=nti_cfg,
-    )
-
-    required_nti_output = {"nti", "components", "qualifies"}
-    if not required_nti_output.issubset(nti_result):
-        raise RuntimeError("NTI computation incomplete or malformed")
-
-    nti_value = nti_result["nti"]
-    nti_components = nti_result["components"]
-    nti_qualifies = nti_result["qualifies"]
-
-    # ------------------------------------------------------------------
-    # Persistence logic
-    # ------------------------------------------------------------------
-    persistence = load_persistence()
-
-    if should_reset_persistence(now):
-        persistence = 0
-
-    if nti_qualifies:
-        persistence += 1
-        mark_qualifying_run(now)
-    else:
-        persistence = 0
-
-    save_persistence(persistence)
-
-    trigger_fired = (
-        nti_value >= nti_cfg["trigger_threshold"]
-        and persistence >= nti_cfg["required_persistence"]
-    )
-
-    # ------------------------------------------------------------------
-    # Trigger context (ALWAYS WRITTEN)
-    # ------------------------------------------------------------------
     trigger_context = {
         "run_id": run_id,
         "timestamp_utc": now.isoformat(),
-        "universe": universe,
-        "prices_loaded": list(prices.keys()),
-        "quant_results": quant_results,
-        "nlp_results": nlp_results,
-        "nti": nti_value,
-        "nti_components": nti_components,
-        "persistence": persistence,
-        "trigger_fired": trigger_fired,
-        "trigger_reason": (
+        "universe": [],
+        "quant_results": None,
+        "nlp_results": None,
+        "nti": None,
+        "nti_components": None,
+        "persistence": None,
+        "trigger_fired": False,
+        "trigger_reason": None,
+        "errors": [],
+    }
+
+    try:
+        assets_cfg = load_yaml_config("config/assets.yaml")
+        nti_cfg = load_yaml_config("config/nt_thresholds.yaml")
+
+        universe = load_universe_from_google_sheets(assets_cfg)
+        if not universe:
+            raise RuntimeError("Universe resolution returned empty list")
+
+        trigger_context["universe"] = universe
+        LOGGER.info(
+            "Resolved securities universe",
+            extra={"count": len(universe), "tickers": universe},
+        )
+
+        prices = load_market_prices(universe)
+        if not prices:
+            raise RuntimeError("Market ingestion returned no data")
+
+        quant_results = run_quant_analysis(prices)
+        if not quant_results:
+            raise RuntimeError("Quant engine produced no results")
+
+        trigger_context["quant_results"] = quant_results
+
+        nlp_results = run_nlp_analysis({"universe": universe})
+        if not nlp_results:
+            raise RuntimeError("NLP engine produced no results")
+
+        trigger_context["nlp_results"] = nlp_results
+
+        persistence = load_persistence()
+        if should_reset_persistence(now):
+            persistence = 0
+
+        nti_result = compute_nti(
+            quant_results=quant_results,
+            nlp_results=nlp_results,
+            persistence_value=persistence,
+            nti_cfg=nti_cfg,
+        )
+
+        trigger_context["nti"] = nti_result["nti"]
+        trigger_context["nti_components"] = nti_result["components"]
+
+        if nti_result["qualifies"]:
+            persistence += 1
+            mark_qualifying_run(now)
+        else:
+            persistence = 0
+
+        save_persistence(persistence)
+        trigger_context["persistence"] = persistence
+
+        trigger_fired = (
+            nti_result["nti"] >= nti_cfg["trigger"]["nti_min_value"]
+            and persistence >= nti_cfg["trigger"]["required_consecutive_runs"]
+        )
+
+        trigger_context["trigger_fired"] = trigger_fired
+        trigger_context["trigger_reason"] = (
             "NTI and persistence thresholds met"
             if trigger_fired
             else "Thresholds not met"
-        ),
-    }
+        )
 
-    Path("trigger_context.json").write_text(
-        json.dumps(trigger_context, indent=2),
-        encoding="utf-8",
-    )
+        LOGGER.info(
+            "Stage 1 completed",
+            extra={"trigger_fired": trigger_fired},
+        )
 
-    # Optional debug artifact
-    Path("stage1_debug.json").write_text(
-        json.dumps(
-            {
-                "assets_cfg": assets_cfg,
-                "nti_cfg": nti_cfg,
-            },
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
+    except Exception as exc:
+        trigger_context["errors"].append(str(exc))
+        LOGGER.error("Stage 1 failed", extra={"error": str(exc)})
+        raise
 
-    LOGGER.info(
-        "Stage 1 completed",
-        extra={"trigger_fired": trigger_fired, "nti": nti_value},
-    )
+    finally:
+        Path("trigger_context.json").write_text(
+            json.dumps(trigger_context, indent=2),
+            encoding="utf-8",
+        )
+
+        Path("stage1_debug.json").write_text(
+            json.dumps(
+                {
+                    "assets_cfg": assets_cfg if "assets_cfg" in locals() else None,
+                    "nti_cfg": nti_cfg if "nti_cfg" in locals() else None,
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
 
 
 if __name__ == "__main__":
