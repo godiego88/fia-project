@@ -1,50 +1,48 @@
-"""
-NTI Synthesis Engine
-
-Combines quantitative and NLP signals into a single
-Normalized Tension Index (NTI).
-"""
-
+import logging
 from typing import Dict
+
+logger = logging.getLogger("nti-engine")
 
 
 def compute_nti(
-    *,
-    quant_results: Dict,
-    nlp_results: Dict,
+    quant_signal: float,
+    nlp_signal: float,
     nti_cfg: Dict,
 ) -> Dict:
-    if not quant_results:
-        raise RuntimeError("NTI computation failed: quant_results empty")
+    """
+    Compute Normalized Threat Index (NTI).
 
-    if not nlp_results:
-        raise RuntimeError("NTI computation failed: nlp_results empty")
+    This function MUST:
+    - Never assume missing config keys
+    - Emit raw + normalized components
+    - Stay compatible with final threshold schema
+    """
 
-    quant_weight = nti_cfg["weights"]["quant"]
-    nlp_weight = nti_cfg["weights"]["nlp"]
+    quant_cfg = nti_cfg.get("quant", {})
+    nlp_cfg = nti_cfg.get("nlp", {})
+    nti_meta = nti_cfg.get("nti", {})
 
-    # Simple deterministic aggregation (Stage 1 baseline)
-    quant_score = sum(
-        v["volatility"] for v in quant_results.values()
-    ) / len(quant_results)
+    # ---- Normalization placeholders (Stage 2 will refine) ----
+    quant_norm = float(quant_signal)
+    nlp_norm = float(nlp_signal)
 
-    nlp_score = sum(
-        v["score"] for v in nlp_results.values()
-    ) / len(nlp_results)
+    method = nti_meta.get("method", "joint_extremity")
 
-    nti_value = (quant_score * quant_weight) + (nlp_score * nlp_weight)
-
-    qualifies = nti_value >= nti_cfg["qualifying_threshold"]
+    if method == "joint_extremity":
+        nti_score = abs(quant_norm) + abs(nlp_norm)
+    else:
+        raise ValueError(f"Unknown NTI method: {method}")
 
     return {
-        "nti": float(nti_value),
-        "qualifies": bool(qualifies),
+        "nti_score": nti_score,
         "components": {
-            "quant_score": float(quant_score),
-            "nlp_score": float(nlp_score),
-            "weights": {
-                "quant": quant_weight,
-                "nlp": nlp_weight,
-            },
+            "quant_raw": quant_signal,
+            "nlp_raw": nlp_signal,
+            "quant_normalized": quant_norm,
+            "nlp_normalized": nlp_norm,
+        },
+        "thresholds": {
+            "qualifying": nti_meta.get("qualifying_score"),
+            "trigger": nti_meta.get("trigger_score"),
         },
     }
