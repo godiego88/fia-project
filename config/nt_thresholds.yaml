@@ -8,7 +8,50 @@ qualify_threshold: 0.65
 trigger_threshold: 0.85
 
 # Number of qualifying runs required before trigger
-required_persistence: 3
+required_persistence: 3# ============================================================
+# NTI THRESHOLD & NORMALIZATION CONFIG (AUTHORITATIVE)
+# ============================================================
+# This file defines HOW signals are interpreted,
+# not just WHEN triggers occur.
+#
+# Stage 1 may only partially enforce this today,
+# but ALL outputs must be compatible with this schema.
+# ============================================================
+
+quant:
+  # How quantitative stress is normalized
+  normalization:
+    method: rolling_percentile
+    window_days: 180
+
+  # When a quant signal is considered unusual
+  qualifying:
+    percentile: 90
+
+nlp:
+  # How NLP signals are normalized
+  normalization:
+    method: zscore
+
+  # When NLP language intensity is statistically rare
+  qualifying:
+    zscore: 2.0
+
+nti:
+  # How quant + NLP are combined
+  method: joint_extremity
+
+  # NTI levels (interpretable, not arbitrary)
+  qualifying_score: 1.0
+  trigger_score: 1.5
+
+persistence:
+  # How many qualifying runs before escalation
+  required_runs: 2
+
+  # How long signal memory persists
+  decay_hours: 24
+
 
 # Component weighting (must sum logically, not numerically)
 weights:
