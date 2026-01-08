@@ -1,6 +1,6 @@
-import yfinance as yf
-import pandas as pd
 from typing import List, Dict
+import pandas as pd
+import yfinance as yf
 
 from utils.logging import get_logger
 
@@ -12,7 +12,7 @@ def load_market_prices(universe: List[str]) -> Dict[str, pd.Series]:
         raise RuntimeError("Universe is empty — cannot load market prices")
 
     prices: Dict[str, pd.Series] = {}
-    failed = []
+    failures = {}
 
     for ticker in universe:
         try:
@@ -20,57 +20,44 @@ def load_market_prices(universe: List[str]) -> Dict[str, pd.Series]:
                 ticker,
                 period="6mo",
                 interval="1d",
-                progress=False,
                 auto_adjust=True,
+                progress=False,
                 threads=False,
             )
 
-            if data is None or data.empty:
-                failed.append(ticker)
-                LOGGER.warning(
-                    "No market data returned",
-                    extra={"ticker": ticker},
-                )
+            if data is None or data.empty or "Close" not in data.columns:
+                failures[ticker] = "no_close_data"
+                LOGGER.warning("No usable market data", extra={"ticker": ticker})
                 continue
 
-            if "Close" not in data.columns:
-                failed.append(ticker)
-                LOGGER.warning(
-                    "Missing Close column in market data",
-                    extra={"ticker": ticker},
-                )
-                continue
-
-            prices[ticker] = data["Close"]
+            close = data["Close"].astype(float)
+            prices[ticker] = close
 
             LOGGER.info(
                 "Market data loaded",
                 extra={
                     "ticker": ticker,
-                    "points": len(data),
-                    "latest_price": float(data["Close"].iloc[-1]),
+                    "points": len(close),
+                    "latest_price": float(close.iloc[-1]),
                 },
             )
 
         except Exception as e:
-            failed.append(ticker)
+            failures[ticker] = str(e)
             LOGGER.error(
-                "Market data ingestion failed",
+                "Market ingestion failed",
                 extra={"ticker": ticker, "error": str(e)},
             )
 
     if not prices:
-        raise RuntimeError("Market ingestion returned no usable data")
-
-    coverage = len(prices) / len(universe)
+        raise RuntimeError("Market ingestion returned zero valid tickers")
 
     LOGGER.info(
         "Market ingestion completed",
         extra={
             "requested": len(universe),
             "loaded": len(prices),
-            "failed": len(failed),
-            "coverage": round(coverage, 3),
+            "failed": len(failures),
         },
     )
 
