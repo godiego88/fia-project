@@ -46,9 +46,7 @@ def main() -> None:
         extra={"count": len(universe), "tickers": universe},
     )
 
-    prices = load_market_prices({"universe": universe})
-    if not prices:
-        raise RuntimeError("Market ingestion returned no data")
+    prices = load_market_prices(universe)
 
     quant_results = run_quant_analysis(prices)
     if not quant_results:
