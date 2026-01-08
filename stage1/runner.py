@@ -1,187 +1,171 @@
-"""
-Stage 1 Runner
-
-Authoritative execution entrypoint for FIA Stage 1.
-Implements ingestion → quant → NLP → synthesis → NTI evaluation.
-
-Silence is the default outcome.
-"""
-
 import json
-import uuid
-from datetime import datetime
+import logging
+import os
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Any
 
 import pandas as pd
 
-from utils.state import (
-    load_persistence,
-    save_persistence,
-    should_reset_persistence,
-    mark_qualifying_run,
-    save_last_run_id,
-)
-from utils.io import load_yaml_config
-from utils.logging import get_logger
-
-from stage1.ingestion.market_prices import load_market_prices
 from stage1.quant.quant_engine import run_quant_analysis
 from stage1.nlp.nlp_engine import run_nlp_analysis
-from stage1.synthesis.nti import compute_nti
+from utils.logging import setup_logger
+from utils.state import load_state, save_state, decay_state
 
 
-LOGGER = get_logger("stage1-runner")
+LOGGER_NAME = "stage1-runner"
+logger = setup_logger(LOGGER_NAME)
 
 
-def _safe_float(value) -> float:
-    """
-    Convert pandas / numpy scalars to float safely.
-    Fixes FutureWarning properly.
-    """
-    if isinstance(value, pd.Series):
-        return float(value.iloc[0])
-    return float(value)
+# =========================
+# Configuration (Authoritative)
+# =========================
+
+DEFAULT_NTI_TRIGGER_THRESHOLD = 0.65
+DEFAULT_NTI_REQUIRED_PERSISTENCE = 3
+STATE_FILE = "state.json"
+TRIGGER_CONTEXT_FILE = "trigger_context.json"
 
 
-def _synthesize_nti_components(
-    quant_results: Dict,
-    nlp_results: Dict,
-) -> Dict[str, float]:
-    """
-    Synthesize canonical NTI components (Q, S, N, P, F)
-    from Stage 1 quant + NLP outputs.
+def get_env_float(name: str, default: float) -> float:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        logger.warning(f"Invalid float for {name}, using default")
+        return default
 
-    NTI math and triggering remain fully inside nti.py.
-    """
 
-    components: Dict[str, float] = {}
+def get_env_int(name: str, default: int) -> int:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        logger.warning(f"Invalid int for {name}, using default")
+        return default
 
-    # Q — Quantitative stress proxy (mean volatility, normalized)
-    vol_values = [
-        _safe_float(v["volatility"])
-        for v in quant_results.values()
-        if isinstance(v, dict) and "volatility" in v
-    ]
-    components["Q"] = min(1.0, sum(vol_values) / len(vol_values)) if vol_values else 0.0
 
-    # S — Structural signal (not yet implemented → neutral, explicit)
-    components["S"] = 0.0
+# =========================
+# Trigger Evaluation
+# =========================
 
-    # N — NLP anomaly signal (max normalized score)
-    nlp_values = [
-        _safe_float(v)
-        for v in nlp_results.values()
-        if isinstance(v, (int, float))
-    ]
-    components["N"] = max(nlp_values) if nlp_values else 0.0
+def evaluate_trigger(
+    nti_value: float,
+    persistence_count: int,
+    threshold: float,
+    required_persistence: int,
+) -> bool:
+    return nti_value >= threshold and persistence_count >= required_persistence
 
-    # P — Persistence proxy (handled canonically inside NTI)
-    components["P"] = 0.0
 
-    # F — Fragility proxy (not yet implemented → neutral, explicit)
-    components["F"] = 0.0
+# =========================
+# Trigger Context Builder
+# =========================
 
-    return components
+def build_trigger_context(
+    nti_value: float,
+    quant_results: Dict[str, Any],
+    nlp_results: Dict[str, Any],
+    persistence_count: int,
+) -> Dict[str, Any]:
+    return {
+        "schema_version": "1.0",
+        "stage": 1,
+        "triggered_at": datetime.now(timezone.utc).isoformat(),
+        "metrics": {
+            "nti": nti_value,
+            "persistence_count": persistence_count,
+        },
+        "quant": quant_results,
+        "nlp": nlp_results,
+    }
 
+
+def write_trigger_context(context: Dict[str, Any]) -> None:
+    path = Path(TRIGGER_CONTEXT_FILE)
+    with path.open("w", encoding="utf-8") as f:
+        json.dump(context, f, indent=2)
+    logger.info("trigger_context.json written")
+
+
+# =========================
+# Main
+# =========================
 
 def main() -> None:
-    """
-    Execute Stage 1 exactly once.
-    """
+    logger.info("Stage 1 run started")
 
-    run_id = str(uuid.uuid4())
-    now = datetime.utcnow()
+    nti_threshold = get_env_float(
+        "NTI_TRIGGER_THRESHOLD",
+        DEFAULT_NTI_TRIGGER_THRESHOLD,
+    )
+    nti_required_persistence = get_env_int(
+        "NTI_REQUIRED_PERSISTENCE",
+        DEFAULT_NTI_REQUIRED_PERSISTENCE,
+    )
 
-    LOGGER.info("Stage 1 run started", extra={"run_id": run_id})
-    save_last_run_id(run_id)
+    state = load_state(STATE_FILE)
 
-    # -------------------------
-    # Load configuration
-    # -------------------------
-    assets_cfg = load_yaml_config("config/assets.yaml")
+    # =========================
+    # Data Acquisition (example placeholder)
+    # =========================
+    # Prices and text inputs are assumed to be fetched inside engines
+    prices = pd.Series(dtype="float64")
+    texts = []
 
-    # -------------------------
-    # Ingestion
-    # -------------------------
-    prices = load_market_prices(assets_cfg)
+    # =========================
+    # Run Engines
+    # =========================
 
-    if not prices:
-        LOGGER.warning("No market data available — silent exit")
+    quant_results = run_quant_analysis(prices)
+    nlp_results = run_nlp_analysis(texts)
+
+    nti_value = float(quant_results.get("nti", 0.0))
+    logger.info("NTI computed")
+
+    # =========================
+    # Persistence Logic
+    # =========================
+
+    if nti_value >= nti_threshold:
+        state["persistence"] = state.get("persistence", 0) + 1
+    else:
+        state = decay_state(state)
+        logger.info("Persistence decayed — resetting")
+
+    save_state(STATE_FILE, state)
+    persistence_count = state.get("persistence", 0)
+
+    # =========================
+    # Trigger Decision
+    # =========================
+
+    triggered = evaluate_trigger(
+        nti_value,
+        persistence_count,
+        nti_threshold,
+        nti_required_persistence,
+    )
+
+    if not triggered:
+        logger.info("No trigger — silent exit")
         return
 
-    # -------------------------
-    # Quant analysis
-    # -------------------------
-    quant_results = run_quant_analysis(prices)
+    logger.info("Stage 2 trigger condition met")
 
-    # -------------------------
-    # NLP analysis
-    # -------------------------
-    nlp_results = run_nlp_analysis(assets_cfg)
-
-    # -------------------------
-    # NTI component synthesis
-    # -------------------------
-    components = _synthesize_nti_components(
+    trigger_context = build_trigger_context(
+        nti_value=nti_value,
         quant_results=quant_results,
         nlp_results=nlp_results,
+        persistence_count=persistence_count,
     )
 
-    # -------------------------
-    # Persistence (pre-NTI)
-    # -------------------------
-    persistence = load_persistence()
-
-    if should_reset_persistence(now):
-        LOGGER.info("Persistence decayed — resetting")
-        persistence = 0
-
-    # -------------------------
-    # NTI computation (CANONICAL)
-    # -------------------------
-    nti_value, trigger, updated_persistence = compute_nti(
-        components=components,
-        persistence_count=persistence,
-    )
-
-    save_persistence(updated_persistence)
-
-    LOGGER.info(
-        "NTI computed",
-        extra={
-            "nti": nti_value,
-            "trigger": trigger,
-            "components": components,
-            "persistence": updated_persistence,
-        },
-    )
-
-    # -------------------------
-    # Trigger handling
-    # -------------------------
-    if trigger:
-        mark_qualifying_run(now)
-        LOGGER.warning("Stage 2 trigger condition met")
-
-        trigger_context = {
-            "run_id": run_id,
-            "timestamp_utc": now.isoformat(),
-            "nti": nti_value,
-            "persistence": updated_persistence,
-            "components": components,
-            "quant_results": quant_results,
-            "nlp_results": nlp_results,
-        }
-
-        output_path = Path("trigger_context.json")
-        with output_path.open("w", encoding="utf-8") as f:
-            json.dump(trigger_context, f, indent=2)
-
-        LOGGER.warning("Trigger context written")
-
-    else:
-        LOGGER.info("No trigger — silent exit")
+    write_trigger_context(trigger_context)
+    logger.info("Stage 1 completed successfully")
 
 
 if __name__ == "__main__":
