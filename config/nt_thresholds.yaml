@@ -1,68 +1,74 @@
-# FIA Stage 1 — NTI Threshold Configuration
-# Defines when silence breaks
-
-# Minimum NTI score for a single run to qualify
-qualify_threshold: 0.65
-
-# NTI score required to trigger Stage 2
-trigger_threshold: 0.85
-
-# Number of qualifying runs required before trigger
-required_persistence: 3# ============================================================
-# NTI THRESHOLD & NORMALIZATION CONFIG (AUTHORITATIVE)
 # ============================================================
-# This file defines HOW signals are interpreted,
-# not just WHEN triggers occur.
-#
-# Stage 1 may only partially enforce this today,
-# but ALL outputs must be compatible with this schema.
+# Non-Triviality Index (NTI) — LOCKED SYSTEM CONTRACT
+# Source: FIA_Project_Execution_Specification_v1.1_FINAL
 # ============================================================
 
-quant:
-  # How quantitative stress is normalized
-  normalization:
-    method: rolling_percentile
-    window_days: 180
+version: "1.0"
+locked: true
+description: >
+  Composite Non-Triviality Index combining Quant, Stress,
+  Narrative, Persistence, and Flow signals.
+  All components normalized to [0,1].
+  Missing components invalidate NTI.
 
-  # When a quant signal is considered unusual
-  qualifying:
-    percentile: 90
-
-nlp:
-  # How NLP signals are normalized
-  normalization:
-    method: zscore
-
-  # When NLP language intensity is statistically rare
-  qualifying:
-    zscore: 2.0
-
-nti:
-  # How quant + NLP are combined
-  method: joint_extremity
-
-  # NTI levels (interpretable, not arbitrary)
-  qualifying_score: 1.0
-  trigger_score: 1.5
-
-persistence:
-  # How many qualifying runs before escalation
-  required_runs: 2
-
-  # How long signal memory persists
-  decay_hours: 24
-
-
-# Component weighting (must sum logically, not numerically)
+# -----------------------------
+# Component Weights (EXPLICIT)
+# -----------------------------
 weights:
-  volatility_cluster: 0.35
-  cross_asset_correlation: 0.25
-  tail_risk_proxy: 0.25
-  nlp_anomaly_signal: 0.15
+  quant: 0.30        # Q — aggregated quantitative stress/regime signals
+  stress: 0.20       # S — realized volatility × positioning stress
+  narrative: 0.20    # N — NLP relevance, burst, sentiment, conflict
+  persistence: 0.15  # P — run-to-run signal durability
+  flow: 0.15         # F — market participation / liquidity / volume flow
 
-# Hard safety limits
-limits:
-  max_nti: 1.0
-  min_nti: 0.0
+# -----------------------------
+# Normalization Rules
+# -----------------------------
+normalization:
+  range_min: 0.0
+  range_max: 1.0
+  enforce_clipping: true
+  allow_missing_components: false
 
-# Persistence decay handled in code (24h window)
+# -----------------------------
+# Trigger Thresholds (LOCKED)
+# -----------------------------
+trigger:
+  nti_min_value: 0.72
+  required_consecutive_runs: 2
+
+# -----------------------------
+# Validation Rules
+# -----------------------------
+validation:
+  require_all_components: true
+  fail_on_missing_weight: true
+  fail_on_schema_drift: true
+  fail_on_non_finite_values: true
+
+# -----------------------------
+# Output Expectations
+# -----------------------------
+output_schema:
+  nti:
+    type: float
+    required: true
+  components:
+    quant:
+      type: float
+      required: true
+    stress:
+      type: float
+      required: true
+    narrative:
+      type: float
+      required: true
+    persistence:
+      type: float
+      required: true
+    flow:
+      type: float
+      required: true
+  qualifies:
+    type: boolean
+    required: true
