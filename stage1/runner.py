@@ -1,145 +1,77 @@
 """
 Stage 1 Runner
 
-Coordinates ingestion, quant, NLP, synthesis (NTI),
-and decides whether to trigger Stage 2.
+Coordinates ingestion, quant scoring, NLP analysis, and NTI synthesis.
+Emits trigger_context.json and stage1_debug.json for Stage 2.
 """
 
 import json
 import logging
 from pathlib import Path
-from datetime import datetime
-from typing import Dict, Any
 
-from stage1.ingestion.market_prices import fetch_market_prices
-from stage1.ingestion.securities import resolve_securities_universe
-from stage1.quant.engine import run_quant_analysis
-from stage1.nlp.engine import run_nlp_analysis
+from stage1.ingestion.market_prices import load_market_prices
 from stage1.synthesis.nti import compute_nti
+from stage1.nlp.engine import run_nlp_analysis
+from stage1.universe import resolve_securities_universe
+from stage1.quant.engine import run_quant_analysis
+
+LOGGER = logging.getLogger("stage1-runner")
+logging.basicConfig(level=logging.INFO)
 
 
-# ------------------------
-# Configuration (LOCKED)
-# ------------------------
+TRIGGER_CONTEXT_PATH = Path("trigger_context.json")
+DEBUG_PATH = Path("stage1_debug.json")
 
-NTI_THRESHOLD = 0.35
-QUANT_STRENGTH_THRESHOLD = 0.25
-PERSISTENCE_THRESHOLD = 0.60
-NOVELTY_THRESHOLD = 0.50
-
-
-# ------------------------
-# Logging
-# ------------------------
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(name)s | %(levelname)s | %(message)s",
-)
-
-logger = logging.getLogger("stage1-runner")
-
-
-# ------------------------
-# Runner
-# ------------------------
 
 def main() -> None:
-    logger.info("Stage 1 run started")
-
-    debug: Dict[str, Any] = {
-        "timestamp": datetime.utcnow().isoformat(),
-        "status": "initialized",
-    }
+    LOGGER.info("Stage 1 run started")
 
     # 1. Resolve universe
     universe = resolve_securities_universe()
-    logger.info("Resolved securities universe")
+    if not universe:
+        raise RuntimeError("Resolved empty securities universe")
 
-    debug["universe_size"] = len(universe)
+    LOGGER.info("Resolved securities universe")
 
-    # 2. Ingest prices
-    prices = fetch_market_prices(universe)
+    # 2. Market data ingestion (authoritative, non-dropping)
+    market_data = load_market_prices(universe)
 
-    # 3. Quant analysis
-    quant_results = run_quant_analysis(prices)
-
-    debug["quant_assets"] = list(quant_results.keys())
-    debug["quant_count"] = len(quant_results)
-
-    if not quant_results:
-        debug["status"] = "no_quant_data"
-        _write_debug(debug)
-        logger.info("No quant results — exiting cleanly")
-        return
+    # 3. Quant analysis (may return empty, must not crash Stage 1)
+    quant_results = run_quant_analysis(
+        universe=universe,
+        market_data=market_data,
+    )
 
     # 4. NLP analysis
     nlp_results = run_nlp_analysis(universe)
-    logger.info("NLP analysis completed")
+    LOGGER.info("NLP analysis completed")
 
-    # 5. NTI synthesis (authoritative)
-    nti = compute_nti(
-        quant=quant_results,
-        nlp=nlp_results,
+    # 5. NTI synthesis (FINAL, LOCKED)
+    nti_result = compute_nti(
+        quant_results=quant_results,
+        nlp_results=nlp_results,
+        market_data=market_data,
     )
 
-    debug["nti"] = nti
-
-    # 6. Extract gates
-    quant_strength = nti["components"]["quant_strength"]
-    persistence = nti["components"]["persistence"]
-    novelty = nti["components"]["novelty"]
-    nti_score = nti["score"]
-
-    debug["gates"] = {
-        "nti": nti_score,
-        "quant_strength": quant_strength,
-        "persistence": persistence,
-        "novelty": novelty,
-    }
-
-    # 7. Trigger decision (HARD GATE)
-    should_trigger = (
-        nti_score >= NTI_THRESHOLD
-        and quant_strength >= QUANT_STRENGTH_THRESHOLD
-        and persistence >= PERSISTENCE_THRESHOLD
-        and novelty >= NOVELTY_THRESHOLD
-    )
-
-    debug["trigger_stage2"] = should_trigger
-
-    _write_debug(debug)
-
-    if not should_trigger:
-        logger.info("Stage 2 NOT triggered")
-        return
-
-    # 8. Emit trigger context
+    # 6. Emit outputs for Stage 2
     trigger_context = {
-        "timestamp": debug["timestamp"],
-        "nti": nti_score,
-        "components": nti["components"],
-        "universe": universe,
+        "nti": nti_result,
+        "universe_size": len(universe),
     }
 
-    with open("trigger_context.json", "w") as f:
-        json.dump(trigger_context, f, indent=2)
+    debug_payload = {
+        "universe": universe,
+        "market_data": market_data,
+        "quant_results": quant_results,
+        "nlp_results": nlp_results,
+        "nti": nti_result,
+    }
 
-    logger.info("Stage 2 TRIGGERED")
+    TRIGGER_CONTEXT_PATH.write_text(json.dumps(trigger_context, indent=2))
+    DEBUG_PATH.write_text(json.dumps(debug_payload, indent=2))
 
+    LOGGER.info("Stage 1 completed successfully")
 
-# ------------------------
-# Utilities
-# ------------------------
-
-def _write_debug(payload: Dict[str, Any]) -> None:
-    with open("stage1_debug.json", "w") as f:
-        json.dump(payload, f, indent=2)
-
-
-# ------------------------
-# Entrypoint
-# ------------------------
 
 if __name__ == "__main__":
     main()
