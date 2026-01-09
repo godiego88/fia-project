@@ -1,0 +1,20 @@
+name: Repo Structure Dump
+
+on:
+  workflow_dispatch:
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dump full repo structure
+        run: |
+          find . -type f | sort > repo_structure.txt
+
+      - name: Upload structure
+        uses: actions/upload-artifact@v4
+        with:
+          name: repo-structure
+          path: repo_structure.txt
