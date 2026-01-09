@@ -1,74 +1,76 @@
 """
 Stage 1 Runner
 
-Coordinates ingestion, quant scoring, NLP analysis, and NTI synthesis.
-Emits trigger_context.json and stage1_debug.json for Stage 2.
+Coordinates ingestion, quant, NLP, and NTI synthesis.
+This file is authoritative and must match repo structure exactly.
 """
 
 import json
 import logging
-from pathlib import Path
+from datetime import datetime
 
+from stage1.ingestion.universe_loader import load_universe_from_google_sheets
 from stage1.ingestion.market_prices import load_market_prices
-from stage1.synthesis.nti import compute_nti
-from stage1.nlp.nlp_engine import run_nlp_analysis
-from stage1.universe import resolve_securities_universe
 from stage1.quant.engine import run_quant_analysis
+from stage1.nlp.nlp_engine import run_nlp_analysis
+from stage1.synthesis.nti import compute_nti
 
-LOGGER = logging.getLogger("stage1-runner")
 logging.basicConfig(level=logging.INFO)
-
-
-TRIGGER_CONTEXT_PATH = Path("trigger_context.json")
-DEBUG_PATH = Path("stage1_debug.json")
+LOGGER = logging.getLogger("stage1-runner")
 
 
 def main() -> None:
     LOGGER.info("Stage 1 run started")
 
     # 1. Resolve universe
-    universe = resolve_securities_universe()
+    universe = load_universe_from_google_sheets()
     if not universe:
-        raise RuntimeError("Resolved empty securities universe")
+        raise RuntimeError("Universe resolution returned empty list")
 
     LOGGER.info("Resolved securities universe")
 
-    # 2. Market data ingestion (authoritative, non-dropping)
+    # 2. Market ingestion
     market_data = load_market_prices(universe)
 
-    # 3. Quant analysis (may return empty, must not crash Stage 1)
-    quant_results = run_quant_analysis(
-        universe=universe,
-        market_data=market_data,
-    )
+    # 3. Quant analysis (only assets with prices)
+    price_series = {
+        ticker: data["latest_price"]
+        for ticker, data in market_data.items()
+        if data["status"] == "ok"
+    }
+
+    quant_results = run_quant_analysis(price_series)
 
     # 4. NLP analysis
     nlp_results = run_nlp_analysis(universe)
-    LOGGER.info("NLP analysis completed")
 
-    # 5. NTI synthesis (FINAL, LOCKED)
+    # 5. NTI synthesis (canonical)
     nti_result = compute_nti(
         quant_results=quant_results,
         nlp_results=nlp_results,
-        market_data=market_data,
     )
 
-    # 6. Emit outputs for Stage 2
+    # 6. Emit artifacts
     trigger_context = {
-        "nti": nti_result,
-        "universe_size": len(universe),
-    }
-
-    debug_payload = {
-        "universe": universe,
-        "market_data": market_data,
-        "quant_results": quant_results,
-        "nlp_results": nlp_results,
+        "timestamp": datetime.utcnow().isoformat(),
         "nti": nti_result,
     }
 
-    TRIGGER_CONTEXT_PATH.write_text(json.dumps(trigger_context, indent=2))
-    DEBUG_PATH.write_text(json.dumps(debug_payload, indent=2))
+    with open("trigger_context.json", "w") as f:
+        json.dump(trigger_context, f, indent=2)
+
+    with open("stage1_debug.json", "w") as f:
+        json.dump(
+            {
+                "universe": universe,
+                "market_data": market_data,
+                "quant_results": quant_results,
+                "nlp_results": nlp_results,
+                "nti": nti_result,
+            },
+            f,
+            indent=2,
+        )
 
     LOGGER.info("Stage 1 completed successfully")
 
