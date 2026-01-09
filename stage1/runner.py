@@ -2,7 +2,7 @@
 Stage 1 Runner
 
 Authoritative execution entrypoint for FIA Stage 1.
-Stage 1 is ALWAYS observable, deterministic, and self-validating.
+Stage 1 is ALWAYS observable, deterministic, and auditable.
 """
 
 import json
@@ -10,6 +10,8 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
+from utils.io import load_yaml_config
+from utils.logging import get_logger
 from utils.state import (
     load_persistence,
     save_persistence,
@@ -17,11 +19,9 @@ from utils.state import (
     mark_qualifying_run,
     save_last_run_id,
 )
-from utils.io import load_yaml_config
-from utils.logging import get_logger
 
-from stage1.ingestion.market_prices import load_market_prices
 from stage1.ingestion.universe_loader import load_universe_from_google_sheets
+from stage1.ingestion.market_prices import load_market_prices
 from stage1.quant.quant_engine import run_quant_analysis
 from stage1.nlp.nlp_engine import run_nlp_analysis
 from stage1.synthesis.nti import compute_nti
@@ -42,22 +42,12 @@ def main() -> None:
     LOGGER.info("Stage 1 run started", extra={"run_id": run_id})
     save_last_run_id(run_id)
 
-    # --------------------------------------------------
-    # LOAD CONFIG (HARD FAIL IF MISSING)
-    # --------------------------------------------------
-
+    # --- Load configs ---
     assets_cfg = load_yaml_config("config/assets.yaml")
     nti_cfg = load_yaml_config("config/nt_thresholds.yaml")
 
-    if not assets_cfg or not nti_cfg:
-        _fail("Required configuration missing")
-
-    # --------------------------------------------------
-    # RESOLVE UNIVERSE (HARD FAIL)
-    # --------------------------------------------------
-
+    # --- Resolve universe ---
     universe = load_universe_from_google_sheets(assets_cfg)
-
     if not universe:
         _fail("Resolved universe is empty")
 
@@ -66,67 +56,42 @@ def main() -> None:
         extra={"count": len(universe), "tickers": universe},
     )
 
-    # --------------------------------------------------
-    # MARKET INGESTION (PARTIAL OK, EMPTY NOT OK)
-    # --------------------------------------------------
-
+    # --- Market ingestion ---
     prices = load_market_prices(universe)
-
     if not prices:
         _fail("Market ingestion returned no data")
 
-    # --------------------------------------------------
-    # QUANT ENGINE (HARD FAIL)
-    # --------------------------------------------------
-
+    # --- Quant analysis ---
     quant_results = run_quant_analysis(prices)
-
     if not quant_results:
         _fail("Quant engine produced no results")
 
-    missing_quant = set(universe) - set(quant_results.keys())
-    if missing_quant:
-        LOGGER.warning(
-            "Quant missing symbols",
-            extra={"missing": sorted(missing_quant)},
-        )
-
-    # --------------------------------------------------
-    # NLP ENGINE (HARD FAIL)
-    # --------------------------------------------------
-
+    # --- NLP analysis ---
     nlp_results = run_nlp_analysis({"universe": universe})
-
     if not nlp_results:
         _fail("NLP engine produced no results")
 
-    # --------------------------------------------------
-    # NTI SYNTHESIS (HARD FAIL)
-    # --------------------------------------------------
-
-    nti_result = compute_nti(
-        quant_results=quant_results,
-        nlp_results=nlp_results,
-        nti_cfg=nti_cfg,
-    )
-
-    required_keys = {"nti", "components", "qualifies"}
-    if not required_keys.issubset(nti_result.keys()):
-        _fail("NTI result schema incomplete")
-
-    nti_value = nti_result["nti"]
-    nti_components = nti_result["components"]
-    nti_qualifies = nti_result["qualifies"]
-
-    # --------------------------------------------------
-    # PERSISTENCE LOGIC (DETERMINISTIC)
-    # --------------------------------------------------
-
+    # --- Persistence handling ---
     persistence = load_persistence()
-
     if should_reset_persistence(now):
         persistence = 0
 
+    # --- NTI computation (LOCKED CONTRACT) ---
+    nti_result = compute_nti(
+        quant_results=quant_results,
+        nlp_results=nlp_results,
+        persistence_value=persistence,
+        nti_cfg=nti_cfg,
+    )
+
+    nti_value = nti_result.get("nti")
+    nti_components = nti_result.get("components")
+    nti_qualifies = nti_result.get("qualifies")
+
+    if nti_value is None or nti_components is None:
+        _fail("NTI computation incomplete")
+
+    # --- Update persistence ---
     if nti_qualifies:
         persistence += 1
         mark_qualifying_run(now)
@@ -135,15 +100,13 @@ def main() -> None:
 
     save_persistence(persistence)
 
+    # --- Trigger decision ---
     trigger_fired = (
         nti_value >= nti_cfg["trigger_threshold"]
         and persistence >= nti_cfg["required_persistence"]
     )
 
-    # --------------------------------------------------
-    # OUTPUT (ALWAYS WRITTEN)
-    # --------------------------------------------------
-
+    # --- Trigger context (ALWAYS WRITTEN) ---
     trigger_context = {
         "run_id": run_id,
         "timestamp_utc": now.isoformat(),
@@ -166,12 +129,12 @@ def main() -> None:
         encoding="utf-8",
     )
 
+    # --- Debug artifact (schema + config visibility) ---
     Path("stage1_debug.json").write_text(
         json.dumps(
             {
                 "assets_cfg": assets_cfg,
                 "nti_cfg": nti_cfg,
-                "missing_quant_symbols": sorted(missing_quant),
             },
             indent=2,
         ),
@@ -180,7 +143,11 @@ def main() -> None:
 
     LOGGER.info(
         "Stage 1 completed",
-        extra={"trigger_fired": trigger_fired},
+        extra={
+            "nti": nti_value,
+            "persistence": persistence,
+            "trigger_fired": trigger_fired,
+        },
     )
 
 
