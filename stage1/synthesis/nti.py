@@ -1,72 +1,57 @@
+# stage1/synthesis/nti.py
+
 from typing import Dict
 
 
-def _clamp(x: float) -> float:
-    return max(0.0, min(1.0, x))
-
-
 def compute_nti(
-    quant_results: Dict,
-    nlp_results: Dict,
-    persistence_value: int,
-    nti_cfg: Dict,
-) -> Dict:
+    quant_scores: Dict[str, float],
+    nlp_score: float,
+    persistence_value: float,
+) -> dict:
     """
-    Canonical NTI computation.
+    NTI = Normalized Trigger Index
+
+    Design invariant:
+    - NTI MUST ALWAYS RESOLVE
+    - Empty quant input => NTI = 0.0 (hard conservative)
+    - Stage 1 NEVER throws due to signal sparsity
     """
 
-    # --- Quant normalization ---
-    quant_scores = []
-    for v in quant_results.values():
-        if "volatility" in v:
-            quant_scores.append(v["volatility"])
-
+    # ---------- HARD SAFETY: EMPTY QUANT ----------
     if not quant_scores:
-        raise RuntimeError("NTI: no quant scores")
+        nti_value = 0.0
+        qualifies = False
 
-    quant_raw = sum(quant_scores) / len(quant_scores)
-    quant_norm = _clamp(
-        (quant_raw - nti_cfg["quant"]["min"]) /
-        (nti_cfg["quant"]["max"] - nti_cfg["quant"]["min"])
+        return {
+            "nti": nti_value,
+            "qualifies": qualifies,
+            "components": {
+                "quant": 0.0,
+                "nlp": float(nlp_score),
+                "persistence": float(persistence_value),
+            },
+            "reason": "no_quant_signal",
+        }
+
+    # ---------- NORMAL PATH ----------
+    quant_component = sum(quant_scores.values()) / len(quant_scores)
+
+    # Conservative weighted blend
+    nti_value = (
+        0.6 * quant_component +
+        0.3 * nlp_score +
+        0.1 * persistence_value
     )
 
-    # --- NLP normalization ---
-    nlp_scores = [v.get("score") for v in nlp_results.values() if "score" in v]
-
-    if not nlp_scores:
-        raise RuntimeError("NTI: no NLP scores")
-
-    nlp_raw = sum(nlp_scores) / len(nlp_scores)
-    nlp_norm = _clamp(
-        (nlp_raw - nti_cfg["nlp"]["min"]) /
-        (nti_cfg["nlp"]["max"] - nti_cfg["nlp"]["min"])
-    )
-
-    # --- Persistence normalization ---
-    persistence_norm = _clamp(
-        persistence_value / nti_cfg["persistence"]["max"]
-    )
-
-    # --- Weighted aggregation ---
-    weights = nti_cfg["weights"]
-
-    nti = _clamp(
-        weights["quant"] * quant_norm +
-        weights["nlp"] * nlp_norm +
-        weights["persistence"] * persistence_norm
-    )
-
-    qualifies = (
-        quant_norm >= nti_cfg["quant"]["qualify_min"] and
-        nlp_norm >= nti_cfg["nlp"]["qualify_min"]
-    )
+    qualifies = nti_value >= 1.0  # threshold stays STRICT
 
     return {
-        "nti": nti,
+        "nti": float(nti_value),
+        "qualifies": bool(qualifies),
         "components": {
-            "quant": quant_norm,
-            "nlp": nlp_norm,
-            "persistence": persistence_norm,
+            "quant": float(quant_component),
+            "nlp": float(nlp_score),
+            "persistence": float(persistence_value),
         },
-        "qualifies": qualifies,
+        "reason": "computed",
     }
