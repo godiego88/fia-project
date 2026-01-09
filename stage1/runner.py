@@ -11,7 +11,7 @@ from pathlib import Path
 
 from stage1.ingestion.market_prices import load_market_prices
 from stage1.synthesis.nti import compute_nti
-from stage1.nlp.engine import run_nlp_analysis
+from stage1.nlp.nlp_engine import run_nlp_analysis
 from stage1.universe import resolve_securities_universe
 from stage1.quant.engine import run_quant_analysis
 
