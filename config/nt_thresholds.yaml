@@ -1,74 +1,20 @@
-# ============================================================
-# Non-Triviality Index (NTI) — LOCKED SYSTEM CONTRACT
-# Source: FIA_Project_Execution_Specification_v1.1_FINAL
-# ============================================================
-
-version: "1.0"
-locked: true
-description: >
-  Composite Non-Triviality Index combining Quant, Stress,
-  Narrative, Persistence, and Flow signals.
-  All components normalized to [0,1].
-  Missing components invalidate NTI.
-
-# -----------------------------
-# Component Weights (EXPLICIT)
-# -----------------------------
 weights:
-  quant: 0.30        # Q — aggregated quantitative stress/regime signals
-  stress: 0.20       # S — realized volatility × positioning stress
-  narrative: 0.20    # N — NLP relevance, burst, sentiment, conflict
-  persistence: 0.15  # P — run-to-run signal durability
-  flow: 0.15         # F — market participation / liquidity / volume flow
+  quant: 0.45
+  nlp: 0.35
+  persistence: 0.20
 
-# -----------------------------
-# Normalization Rules
-# -----------------------------
-normalization:
-  range_min: 0.0
-  range_max: 1.0
-  enforce_clipping: true
-  allow_missing_components: false
+quant:
+  min: 0.01
+  max: 0.08
+  qualify_min: 0.60
 
-# -----------------------------
-# Trigger Thresholds (LOCKED)
-# -----------------------------
-trigger:
-  nti_min_value: 0.72
-  required_consecutive_runs: 2
+nlp:
+  min: 0.0
+  max: 1.0
+  qualify_min: 0.55
 
-# -----------------------------
-# Validation Rules
-# -----------------------------
-validation:
-  require_all_components: true
-  fail_on_missing_weight: true
-  fail_on_schema_drift: true
-  fail_on_non_finite_values: true
+persistence:
+  max: 5
 
-# -----------------------------
-# Output Expectations
-# -----------------------------
-output_schema:
-  nti:
-    type: float
-    required: true
-  components:
-    quant:
-      type: float
-      required: true
-    stress:
-      type: float
-      required: true
-    narrative:
-      type: float
-      required: true
-    persistence:
-      type: float
-      required: true
-    flow:
-      type: float
-      required: true
-  qualifies:
-    type: boolean
-    required: true
+trigger_threshold: 0.75
+required_persistence: 3
