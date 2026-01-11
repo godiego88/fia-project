@@ -1,15 +1,13 @@
-from typing import Dict, List
-import logging
-import yfinance as yf
+"""
+Market Price Ingestion — Explicit failure accounting
+"""
 
-LOGGER = logging.getLogger("market-ingestion")
+from typing import Dict, List
+import yfinance as yf
 
 
 def load_market_prices(universe: List[str]) -> Dict[str, dict]:
-    if not universe:
-        raise RuntimeError("Market ingestion received empty universe")
-
-    results = {}
+    results: Dict[str, dict] = {}
 
     for ticker in universe:
         try:
@@ -25,14 +23,12 @@ def load_market_prices(universe: List[str]) -> Dict[str, dict]:
                 results[ticker] = {
                     "latest_price": None,
                     "status": "failed",
-                    "reason": "no_price_data",
+                    "reason": "no_data",
                 }
                 continue
 
-            latest_price = float(data["Close"].iloc[-1])
-
             results[ticker] = {
-                "latest_price": latest_price,
+                "latest_price": float(data["Close"].iloc[-1]),
                 "status": "ok",
                 "reason": None,
             }
@@ -43,8 +39,5 @@ def load_market_prices(universe: List[str]) -> Dict[str, dict]:
                 "status": "failed",
                 "reason": str(e),
             }
-
-    if not results:
-        raise RuntimeError("Market ingestion produced no results")
 
     return results
