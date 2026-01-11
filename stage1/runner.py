@@ -1,6 +1,7 @@
 """
-Stage 1 Runner — Institutional Signal Compression Engine
-High-entropy, sparse trigger generator for Stage 2
+Stage 1 Runner – Signal Compression Engine
+
+Produces high-entropy, sparse, regime-aware triggers.
 """
 
 import json
@@ -21,23 +22,20 @@ def main() -> None:
     universe = load_universe_from_google_sheets()
     market = load_market_prices(universe)
 
-    quant = run_quant_analysis(market)
+    prices = {
+        k: v["latest_price"]
+        for k, v in market.items()
+        if v["status"] == "ok"
+    }
+
+    quant = run_quant_analysis(prices)
     nlp = run_nlp_analysis(universe)
 
-    nti = compute_nti(
-        quant_results=quant,
-        nlp_results=nlp,
-    )
+    nti = compute_nti(quant, nlp)
 
     with open("trigger_context.json", "w") as f:
         json.dump(
-            {
-                "timestamp": datetime.utcnow().isoformat(),
-                "trigger": nti["trigger"],
-                "confidence": nti["confidence"],
-                "regime": nti["regime"],
-                "entropy": nti["entropy"],
-            },
+            {"timestamp": datetime.utcnow().isoformat(), **nti},
             f,
             indent=2,
         )
@@ -54,6 +52,8 @@ def main() -> None:
             f,
             indent=2,
         )
+
+    LOGGER.info("Stage 1 completed")
 
 
 if __name__ == "__main__":
