@@ -31,35 +31,21 @@ LOGGER = logging.getLogger("stage1-runner")
 def main() -> None:
     LOGGER.info("Stage 1 started")
 
-    # ------------------------------------------------------------------
     # 1. Universe resolution
-    # ------------------------------------------------------------------
     universe = load_universe_from_google_sheets()
     if not universe:
         raise RuntimeError("Universe resolution failed")
 
-    # ------------------------------------------------------------------
     # 2. Market ingestion (no silent drops)
-    # ------------------------------------------------------------------
     market = load_market_prices(universe)
 
-    # Preserve failures explicitly
     prices = {
         symbol: data["latest_price"]
         for symbol, data in market.items()
         if data["status"] == "ok"
     }
 
-    # ------------------------------------------------------------------
-    # 3. Quant engine (multi-resolution, regime-aware)
-    # Expected output per asset:
-    # {
-    #   "regimes": { "5d": {...}, "20d": {...}, "60d": {...} },
-    #   "anomalies": {...},
-    #   "volatility_structure": {...},
-    #   "trend_breaks": {...}
-    # }
-    # ------------------------------------------------------------------
+    # 3. Quant engine (multi-resolution, topology-aware)
     quant = run_quant_analysis(
         prices=prices,
         windows=[5, 20, 60],
@@ -68,16 +54,7 @@ def main() -> None:
         build_cross_asset_stats=True,
     )
 
-    # ------------------------------------------------------------------
     # 4. NLP engine (temporal + cross-asset aware)
-    # Expected output:
-    # {
-    #   "per_asset": {...},
-    #   "global_sentiment": {...},
-    #   "temporal_shifts": {...},
-    #   "topic_clusters": {...}
-    # }
-    # ------------------------------------------------------------------
     nlp = run_nlp_analysis(
         universe=universe,
         short_horizon_days=7,
@@ -86,15 +63,7 @@ def main() -> None:
         cluster_topics=True,
     )
 
-    # ------------------------------------------------------------------
     # 5. NTI synthesis — HARD GATED
-    # compute_nti MUST:
-    # - penalize missing signals
-    # - require cross-domain agreement
-    # - require cross-asset coherence
-    # - compute NTI over rolling windows
-    # - emit ΔNTI, Δ²NTI, regime flags
-    # ------------------------------------------------------------------
     nti = compute_nti(
         quant_results=quant,
         nlp_results=nlp,
@@ -104,9 +73,7 @@ def main() -> None:
         enable_temporal_dynamics=True,
     )
 
-    # ------------------------------------------------------------------
-    # 6. Emission (Stage 2 consumes these directly)
-    # ------------------------------------------------------------------
+    # 6. Emission (Stage 2 consumes directly)
     timestamp = datetime.now(timezone.utc).isoformat()
 
     trigger_context = {
