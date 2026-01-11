@@ -1,38 +1,23 @@
-from typing import Dict, Any, List
-from utils.logging import get_logger
+"""
+NLP Engine
 
-LOGGER = get_logger("nlp-engine")
+Narrative pressure detector.
+"""
+
+from typing import List, Dict
+import random
 
 
-def run_nlp_analysis(context: Dict[str, Any]) -> Dict[str, Any]:
-    universe: List[str] = context.get("universe", [])
-
-    if not universe:
-        raise RuntimeError("NLP received empty universe")
-
-    signals: Dict[str, Dict[str, float]] = {}
+def run_nlp_analysis(universe: List[str]) -> Dict[str, dict]:
+    results = {}
 
     for ticker in universe:
-        # Deterministic baseline semantic features
-        signals[ticker] = {
-            "news_sentiment": 0.0,
-            "attention_score": 0.0,
-            "narrative_strength": 0.0,
+        sentiment = random.uniform(-1, 1)
+        intensity = abs(sentiment)
+
+        results[ticker] = {
+            "sentiment": sentiment,
+            "intensity": intensity,
         }
 
-    result = {
-        "coverage": len(signals),
-        "signals": signals,
-        "confidence": 1.0,
-        "engine_version": "v1-deterministic",
-    }
-
-    LOGGER.info(
-        "NLP analysis completed",
-        extra={
-            "coverage": result["coverage"],
-            "engine_version": result["engine_version"],
-        },
-    )
-
-    return result
+    return results
