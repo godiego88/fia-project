@@ -1,7 +1,7 @@
 """
-Market Price Ingestion – Stage 1
+Market Price Ingestion
 
-Institution-grade loader.
+Loads full price series.
 Never silently drops assets.
 """
 
@@ -13,6 +13,9 @@ LOGGER = logging.getLogger("market-ingestion")
 
 
 def load_market_prices(universe: List[str]) -> Dict[str, dict]:
+    if not universe:
+        raise RuntimeError("Market ingestion received empty universe")
+
     results: Dict[str, dict] = {}
 
     for ticker in universe:
@@ -21,32 +24,37 @@ def load_market_prices(universe: List[str]) -> Dict[str, dict]:
                 ticker,
                 period="6mo",
                 interval="1d",
-                auto_adjust=True,
                 progress=False,
+                auto_adjust=True,
             )
 
             if data.empty or "Close" not in data:
                 results[ticker] = {
                     "status": "failed",
                     "reason": "no_price_data",
-                    "prices": None,
+                    "price_series": None,
                 }
                 continue
+
+            close = data["Close"].dropna()
 
             results[ticker] = {
                 "status": "ok",
                 "reason": None,
-                "prices": data["Close"].tolist(),
+                "price_series": close.tolist(),
+                "latest_price": float(close.iloc[-1]),
+                "volatility": float(close.pct_change().std()),
             }
 
         except Exception as e:
+            LOGGER.exception("Market ingestion failed", extra={"ticker": ticker})
             results[ticker] = {
                 "status": "failed",
                 "reason": str(e),
-                "prices": None,
+                "price_series": None,
             }
 
     if not results:
-        raise RuntimeError("Market ingestion produced zero assets")
+        raise RuntimeError("Market ingestion produced no results")
 
     return results
