@@ -1,80 +1,64 @@
 """
-Quant Engine — Cross-sectional stress, tail risk, regime fracture
-Institutional-grade, deterministic
+Institutional Quant Engine – Stage 1
+
+Multi-resolution regime detection with temporal coherence.
+No averages. Regime + anomaly driven.
 """
 
-from typing import Dict
+from typing import Dict, Any
+import pandas as pd
 import numpy as np
-import math
 
 
-def _safe_std(x: np.ndarray) -> float:
-    return float(np.std(x)) if len(x) > 1 else 0.0
+WINDOWS = {
+    "short": 5,
+    "medium": 20,
+    "long": 60,
+}
 
 
-def _z(x: np.ndarray) -> np.ndarray:
-    s = _safe_std(x)
-    return np.zeros_like(x) if s == 0 else (x - np.mean(x)) / s
+def _returns(series: pd.Series) -> pd.Series:
+    return series.pct_change().dropna()
 
 
-def run_quant_analysis(market: Dict[str, dict]) -> Dict:
-    prices = []
-    tickers = []
-    failures = 0
+def _regime_score(returns: pd.Series, window: int) -> float:
+    if len(returns) < window:
+        return -1.0  # explicit penalty
+    r = returns[-window:]
+    mu = r.mean()
+    vol = r.std()
+    if vol == 0:
+        return -1.0
+    return float(mu / vol)
 
-    for t, d in market.items():
-        if d["status"] == "ok" and d["latest_price"] is not None:
-            prices.append(float(d["latest_price"]))
-            tickers.append(t)
-        else:
-            failures += 1
 
-    if len(prices) < 6:
-        return {"global": {"entropy": 0.0, "valid_assets": len(prices)}}
+def run_quant_analysis(price_series: Dict[str, Any]) -> Dict[str, Dict[str, float]]:
+    results: Dict[str, Dict[str, float]] = {}
 
-    p = np.array(prices)
-    logp = np.log(p)
+    for asset, raw in price_series.items():
+        try:
+            series = pd.Series(raw).dropna()
+            if len(series) < max(WINDOWS.values()):
+                results[asset] = {"quant_valid": 0.0}
+                continue
 
-    z = _z(logp)
-    abs_z = np.abs(z)
+            rets = _returns(series)
 
-    dispersion = float(np.std(logp))
-    tail_density = float(np.mean(abs_z > 2.5))
-    extreme_density = float(np.mean(abs_z > 3.5))
-    skew = float(np.mean(z ** 3))
-    kurtosis = float(np.mean(z ** 4) - 3.0)
-    span = float(np.max(logp) - np.min(logp))
-
-    instability = (
-        dispersion * 0.25 +
-        tail_density * 0.30 +
-        extreme_density * 0.20 +
-        abs(skew) * 0.10 +
-        max(0.0, kurtosis) * 0.15
-    )
-
-    coverage_penalty = (len(prices) / max(1, len(market))) ** 0.5
-    entropy = instability * coverage_penalty
-
-    return {
-        "global": {
-            "dispersion": dispersion,
-            "tail_density": tail_density,
-            "extreme_density": extreme_density,
-            "skew": skew,
-            "kurtosis": kurtosis,
-            "regime_span": span,
-            "valid_assets": len(prices),
-            "failed_assets": failures,
-            "entropy": entropy,
-        },
-        "cross_section": {
-            t: {
-                "z": float(zi),
-                "abs_z": float(abs(zi)),
-                "tail": abs(zi) > 2.5,
-                "extreme": abs(zi) > 3.5,
+            regimes = {
+                name: _regime_score(rets, w)
+                for name, w in WINDOWS.items()
             }
-            for t, zi in zip(tickers, z)
-        },
-    }
+
+            signs = [np.sign(v) for v in regimes.values()]
+            coherence = 1.0 if abs(sum(signs)) == 3 else -1.0
+
+            results[asset] = {
+                **{f"regime_{k}": v for k, v in regimes.items()},
+                "regime_coherence": coherence,
+                "quant_valid": 1.0,
+            }
+
+        except Exception:
+            results[asset] = {"quant_valid": 0.0}
+
+    return results
