@@ -1,25 +1,34 @@
 """
-Universe Loader
+Universe Loader – Stage 1
 
-Authoritative universe source.
-Must never silently return empty.
+Authoritative universe resolver.
+Deterministic. Auditable. Fails hard if invalid.
 """
 
 from typing import List
-import os
 import logging
 
 LOGGER = logging.getLogger("universe-loader")
 
 
 def load_universe_from_google_sheets() -> List[str]:
-    # Placeholder for authoritative loader
-    universe = os.getenv("STATIC_UNIVERSE", "").split(",")
+    """
+    Resolve securities universe.
 
-    universe = [u.strip().upper() for u in universe if u.strip()]
+    TEMP: static placeholder.
+    Interface is final.
+    """
+
+    universe = [
+        "AAPL",
+        "MSFT",
+        "NVDA",
+        "GOOGL",
+        "AMZN",
+    ]
 
     if not universe:
-        raise RuntimeError("Universe loader produced empty universe")
+        raise RuntimeError("Universe loader returned empty universe")
 
-    LOGGER.info("Universe loaded", extra={"count": len(universe)})
+    LOGGER.info("Universe resolved", extra={"count": len(universe)})
     return universe
