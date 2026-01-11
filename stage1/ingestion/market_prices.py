@@ -1,9 +1,15 @@
 """
-Market Price Ingestion — Explicit failure accounting
+Market Price Ingestion – Stage 1
+
+Institution-grade loader.
+Never silently drops assets.
 """
 
 from typing import Dict, List
+import logging
 import yfinance as yf
+
+LOGGER = logging.getLogger("market-ingestion")
 
 
 def load_market_prices(universe: List[str]) -> Dict[str, dict]:
@@ -15,29 +21,32 @@ def load_market_prices(universe: List[str]) -> Dict[str, dict]:
                 ticker,
                 period="6mo",
                 interval="1d",
-                progress=False,
                 auto_adjust=True,
+                progress=False,
             )
 
             if data.empty or "Close" not in data:
                 results[ticker] = {
-                    "latest_price": None,
                     "status": "failed",
-                    "reason": "no_data",
+                    "reason": "no_price_data",
+                    "prices": None,
                 }
                 continue
 
             results[ticker] = {
-                "latest_price": float(data["Close"].iloc[-1]),
                 "status": "ok",
                 "reason": None,
+                "prices": data["Close"].tolist(),
             }
 
         except Exception as e:
             results[ticker] = {
-                "latest_price": None,
                 "status": "failed",
                 "reason": str(e),
+                "prices": None,
             }
+
+    if not results:
+        raise RuntimeError("Market ingestion produced zero assets")
 
     return results
