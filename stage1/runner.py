@@ -1,8 +1,6 @@
 """
-Stage 1 Runner
-
-Signal-compression engine producing high-entropy triggers.
-Authoritative orchestration layer. No simplification allowed.
+Stage 1 Runner — Institutional Signal Compression Engine
+High-entropy, sparse trigger generator for Stage 2
 """
 
 import json
@@ -20,51 +18,42 @@ LOGGER = logging.getLogger("stage1-runner")
 
 
 def main() -> None:
-    LOGGER.info("Stage 1 run started")
-
     universe = load_universe_from_google_sheets()
-    if not universe:
-        raise RuntimeError("Universe resolution returned empty list")
+    market = load_market_prices(universe)
 
-    market_data = load_market_prices(universe)
-
-    quant_results = run_quant_analysis(
-        market_data=market_data
-    )
-
-    nlp_results = run_nlp_analysis(
-        universe=universe
-    )
+    quant = run_quant_analysis(market)
+    nlp = run_nlp_analysis(universe)
 
     nti = compute_nti(
-        quant_results=quant_results,
-        nlp_results=nlp_results,
-        market_data=market_data,
+        quant_results=quant,
+        nlp_results=nlp,
     )
 
-    trigger_context = {
-        "timestamp": datetime.utcnow().isoformat(),
-        "nti": nti,
-        "trigger": nti["trigger"],
-    }
-
     with open("trigger_context.json", "w") as f:
-        json.dump(trigger_context, f, indent=2)
-
-    with open("stage1_debug.json", "w") as f:
         json.dump(
             {
-                "universe": universe,
-                "market_data": market_data,
-                "quant_results": quant_results,
-                "nlp_results": nlp_results,
-                "nti": nti,
+                "timestamp": datetime.utcnow().isoformat(),
+                "trigger": nti["trigger"],
+                "confidence": nti["confidence"],
+                "regime": nti["regime"],
+                "entropy": nti["entropy"],
             },
             f,
             indent=2,
         )
 
-    LOGGER.info("Stage 1 completed successfully")
+    with open("stage1_debug.json", "w") as f:
+        json.dump(
+            {
+                "universe": universe,
+                "market": market,
+                "quant": quant,
+                "nlp": nlp,
+                "nti": nti,
+            },
+            f,
+            indent=2,
+        )
 
 
 if __name__ == "__main__":
