@@ -1,51 +1,46 @@
 """
-NTI — Narrative Tension Index
-
-Final compression layer.
-Triggers MUST be rare, reproducible, high-entropy.
+NTI — Nonlinear Trigger Index
+Agreement-gated, regime-aware, sparse by construction
 """
 
 from typing import Dict
+import math
+
+TRIGGER_THRESHOLD = 0.90
+MIN_DOMAIN_ENTROPY = 0.45
 
 
-NTI_TRIGGER_THRESHOLD = 3.5
+def compute_nti(*, quant_results: Dict, nlp_results: Dict) -> Dict:
+    q = quant_results.get("global", {})
+    n = nlp_results.get("global", {})
 
+    q_e = float(q.get("entropy", 0.0))
+    n_e = float(n.get("entropy", 0.0))
 
-def compute_nti(
-    quant_results: Dict[str, dict],
-    nlp_results: Dict[str, dict],
-    market_data: Dict[str, dict],
-) -> dict:
-
-    composite_scores = {}
-
-    for ticker, q in quant_results.items():
-        nlp = nlp_results.get(ticker)
-        if not nlp:
-            continue
-
-        score = (
-            q["score"] *
-            (1 + abs(nlp["sentiment"])) *
-            nlp["intensity"]
-        )
-
-        composite_scores[ticker] = score
-
-    if not composite_scores:
-        nti_value = 0.0
+    if q_e < MIN_DOMAIN_ENTROPY or n_e < MIN_DOMAIN_ENTROPY:
+        entropy = 0.0
+        agreement = 0.0
     else:
-        nti_value = max(composite_scores.values())
+        agreement = max(0.0, 1.0 - abs(q_e - n_e))
+        entropy = (q_e * n_e) ** 0.5 * agreement
 
-    trigger = nti_value >= NTI_TRIGGER_THRESHOLD
+    trigger = entropy >= TRIGGER_THRESHOLD
+    confidence = min(1.0, entropy * 1.8)
+
+    regime = (
+        "systemic_break"
+        if q.get("extreme_density", 0.0) > 0.15 and n_e > 0.65
+        else "stress"
+        if entropy > 0.70
+        else "normal"
+    )
 
     return {
-        "nti": nti_value,
+        "quant_entropy": q_e,
+        "nlp_entropy": n_e,
+        "agreement": agreement,
+        "entropy": entropy,
+        "confidence": confidence,
+        "regime": regime,
         "trigger": trigger,
-        "threshold": NTI_TRIGGER_THRESHOLD,
-        "top_contributors": sorted(
-            composite_scores.items(),
-            key=lambda x: x[1],
-            reverse=True
-        )[:5],
     }
