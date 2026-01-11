@@ -1,34 +1,15 @@
-"""
-Market Price Ingestion
-
-Authoritative market data loader for Stage 1.
-Must NEVER silently drop assets.
-"""
-
 from typing import Dict, List
 import logging
-
 import yfinance as yf
 
 LOGGER = logging.getLogger("market-ingestion")
 
 
 def load_market_prices(universe: List[str]) -> Dict[str, dict]:
-    """
-    Load recent market prices for a universe of tickers.
-
-    Returns:
-      dict[ticker] -> {
-        "latest_price": float | None,
-        "status": "ok" | "failed",
-        "reason": str | None
-      }
-    """
-
     if not universe:
         raise RuntimeError("Market ingestion received empty universe")
 
-    results: Dict[str, dict] = {}
+    results = {}
 
     for ticker in universe:
         try:
@@ -41,7 +22,6 @@ def load_market_prices(universe: List[str]) -> Dict[str, dict]:
             )
 
             if data.empty or "Close" not in data:
-                LOGGER.warning("No usable market data", extra={"ticker": ticker})
                 results[ticker] = {
                     "latest_price": None,
                     "status": "failed",
@@ -49,8 +29,7 @@ def load_market_prices(universe: List[str]) -> Dict[str, dict]:
                 }
                 continue
 
-            close = data["Close"]
-            latest_price = float(close.iloc[-1])
+            latest_price = float(data["Close"].iloc[-1])
 
             results[ticker] = {
                 "latest_price": latest_price,
@@ -58,10 +37,7 @@ def load_market_prices(universe: List[str]) -> Dict[str, dict]:
                 "reason": None,
             }
 
-            LOGGER.info("Market data loaded", extra={"ticker": ticker})
-
         except Exception as e:
-            LOGGER.exception("Market ingestion failed", extra={"ticker": ticker})
             results[ticker] = {
                 "latest_price": None,
                 "status": "failed",
@@ -71,5 +47,4 @@ def load_market_prices(universe: List[str]) -> Dict[str, dict]:
     if not results:
         raise RuntimeError("Market ingestion produced no results")
 
-    LOGGER.info("Market ingestion completed", extra={"count": len(results)})
     return results
