@@ -1,10 +1,3 @@
-"""
-Market Price Ingestion
-
-Loads full price series.
-Never silently drops assets.
-"""
-
 from typing import Dict, List
 import logging
 import yfinance as yf
@@ -12,20 +5,18 @@ import yfinance as yf
 LOGGER = logging.getLogger("market-ingestion")
 
 
-def load_market_prices(universe: List[dict]) -> Dict[str, dict]:
+def load_market_prices(universe: List[Dict[str, str]]) -> Dict[str, dict]:
     if not universe:
         raise RuntimeError("Market ingestion received empty universe")
 
-    # ---- HARD SCHEMA VALIDATION ----
-    tickers: List[str] = []
-    for asset in universe:
-        if "ticker" not in asset:
-            raise RuntimeError(f"Invalid universe entry: {asset}")
-        tickers.append(asset["ticker"])
-
     results: Dict[str, dict] = {}
 
-    for ticker in tickers:
+    for asset in universe:
+        if not isinstance(asset, dict) or "ticker" not in asset:
+            raise RuntimeError(f"Invalid universe entry: {asset}")
+
+        ticker = asset["ticker"]
+
         try:
             data = yf.download(
                 ticker,
@@ -54,7 +45,6 @@ def load_market_prices(universe: List[dict]) -> Dict[str, dict]:
             }
 
         except Exception as e:
-            LOGGER.exception("Market ingestion failed", extra={"ticker": ticker})
             results[ticker] = {
                 "status": "failed",
                 "reason": str(e),
