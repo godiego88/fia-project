@@ -12,13 +12,20 @@ import yfinance as yf
 LOGGER = logging.getLogger("market-ingestion")
 
 
-def load_market_prices(universe: List[str]) -> Dict[str, dict]:
+def load_market_prices(universe: List[dict]) -> Dict[str, dict]:
     if not universe:
         raise RuntimeError("Market ingestion received empty universe")
 
+    # ---- HARD SCHEMA VALIDATION ----
+    tickers: List[str] = []
+    for asset in universe:
+        if "ticker" not in asset:
+            raise RuntimeError(f"Invalid universe entry: {asset}")
+        tickers.append(asset["ticker"])
+
     results: Dict[str, dict] = {}
 
-    for ticker in universe:
+    for ticker in tickers:
         try:
             data = yf.download(
                 ticker,
