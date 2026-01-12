@@ -46,7 +46,7 @@ def main() -> None:
         LOGGER.error("No valid price series available — proceeding with full penalty")
 
     # ------------------------------------------------------------------
-    # 3. Quant engine (runs even under collapse)
+    # 3. Quant engine (multi-resolution, topology-aware)
     # ------------------------------------------------------------------
     quant = run_quant_analysis(
         prices=prices,
@@ -57,10 +57,10 @@ def main() -> None:
     )
 
     # ------------------------------------------------------------------
-    # 4. NLP engine
+    # 4. NLP engine (STRUCTURED UNIVERSE — FIXED)
     # ------------------------------------------------------------------
     nlp = run_nlp_analysis(
-        universe=tickers,
+        universe=universe,
         short_horizon_days=7,
         long_horizon_days=45,
         detect_sentiment_shifts=True,
@@ -68,7 +68,7 @@ def main() -> None:
     )
 
     # ------------------------------------------------------------------
-    # 5. NTI synthesis — HARD GATED, PENALTY AWARE
+    # 5. NTI synthesis — HARD GATED
     # ------------------------------------------------------------------
     nti = compute_nti(
         quant_results=quant,
