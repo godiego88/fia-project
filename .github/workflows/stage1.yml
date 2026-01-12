@@ -9,10 +9,6 @@ jobs:
   stage1:
     runs-on: ubuntu-latest
 
-    defaults:
-      run:
-        working-directory: fia-project
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
