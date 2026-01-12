@@ -21,7 +21,6 @@ from stage1.ingestion.market_prices import load_market_prices
 
 from stage1.quant.quant_engine import run_quant_analysis
 from stage1.nlp.nlp_engine import run_nlp_analysis
-
 from stage1.synthesis.nti import compute_nti
 
 logging.basicConfig(level=logging.INFO)
@@ -31,21 +30,29 @@ LOGGER = logging.getLogger("stage1-runner")
 def main() -> None:
     LOGGER.info("Stage 1 started")
 
-    # 1. Universe resolution
+    # ------------------------------------------------------------------
+    # 1. Universe resolution (STRUCTURED, AUTHORITATIVE)
+    # ------------------------------------------------------------------
     universe = load_universe_from_google_sheets()
     if not universe:
         raise RuntimeError("Universe resolution failed")
 
+    tickers = [u["ticker"] for u in universe]
+
+    # ------------------------------------------------------------------
     # 2. Market ingestion (no silent drops)
-    market = load_market_prices(universe)
+    # ------------------------------------------------------------------
+    market = load_market_prices(tickers)
 
     prices = {
-        symbol: data["latest_price"]
-        for symbol, data in market.items()
+        ticker: data["latest_price"]
+        for ticker, data in market.items()
         if data["status"] == "ok"
     }
 
+    # ------------------------------------------------------------------
     # 3. Quant engine (multi-resolution, topology-aware)
+    # ------------------------------------------------------------------
     quant = run_quant_analysis(
         prices=prices,
         windows=[5, 20, 60],
@@ -54,7 +61,9 @@ def main() -> None:
         build_cross_asset_stats=True,
     )
 
+    # ------------------------------------------------------------------
     # 4. NLP engine (temporal + cross-asset aware)
+    # ------------------------------------------------------------------
     nlp = run_nlp_analysis(
         universe=universe,
         short_horizon_days=7,
@@ -63,7 +72,9 @@ def main() -> None:
         cluster_topics=True,
     )
 
+    # ------------------------------------------------------------------
     # 5. NTI synthesis — HARD GATED
+    # ------------------------------------------------------------------
     nti = compute_nti(
         quant_results=quant,
         nlp_results=nlp,
@@ -73,7 +84,9 @@ def main() -> None:
         enable_temporal_dynamics=True,
     )
 
+    # ------------------------------------------------------------------
     # 6. Emission (Stage 2 consumes directly)
+    # ------------------------------------------------------------------
     timestamp = datetime.now(timezone.utc).isoformat()
 
     trigger_context = {
