@@ -1,21 +1,36 @@
-from typing import Dict, List
+"""
+Market Price Ingestion
+
+Loads full price series.
+Never silently drops assets.
+Accepts structured universe entries or raw tickers.
+"""
+
+from typing import Dict, List, Union
 import logging
 import yfinance as yf
 
 LOGGER = logging.getLogger("market-ingestion")
 
 
-def load_market_prices(universe: List[Dict[str, str]]) -> Dict[str, dict]:
+def _extract_ticker(asset: Union[str, dict]) -> str:
+    if isinstance(asset, str):
+        return asset.strip().upper()
+
+    if isinstance(asset, dict) and "ticker" in asset:
+        return str(asset["ticker"]).strip().upper()
+
+    raise RuntimeError(f"Invalid universe entry: {asset}")
+
+
+def load_market_prices(universe: List[Union[str, dict]]) -> Dict[str, dict]:
     if not universe:
         raise RuntimeError("Market ingestion received empty universe")
 
     results: Dict[str, dict] = {}
 
     for asset in universe:
-        if not isinstance(asset, dict) or "ticker" not in asset:
-            raise RuntimeError(f"Invalid universe entry: {asset}")
-
-        ticker = asset["ticker"]
+        ticker = _extract_ticker(asset)
 
         try:
             data = yf.download(
