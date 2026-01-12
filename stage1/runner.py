@@ -1,3 +1,10 @@
+"""
+Stage 1 Runner — High-Entropy Signal Compression Engine
+
+Authoritative orchestration layer.
+This runner is intentionally INTELLIGENCE-DENSE.
+"""
+
 import json
 import logging
 from datetime import datetime, timezone
@@ -22,10 +29,12 @@ def main() -> None:
     if not universe:
         raise RuntimeError("Universe resolution failed")
 
+    tickers = [u["ticker"] for u in universe]
+
     # ------------------------------------------------------------------
     # 2. Market ingestion (STRUCTURED IN → NO SILENT DROPS)
     # ------------------------------------------------------------------
-    market = load_market_prices(universe)
+    market = load_market_prices(tickers)
 
     prices = {
         ticker: data["price_series"]
@@ -51,7 +60,7 @@ def main() -> None:
     # 4. NLP engine (temporal + cross-asset aware)
     # ------------------------------------------------------------------
     nlp = run_nlp_analysis(
-        universe=[u["ticker"] for u in universe],
+        universe=tickers,
         short_horizon_days=7,
         long_horizon_days=45,
         detect_sentiment_shifts=True,
