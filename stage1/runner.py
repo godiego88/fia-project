@@ -1,3 +1,17 @@
+import json
+import logging
+from datetime import datetime, timezone
+
+from stage1.ingestion.universe_loader import load_universe_from_google_sheets
+from stage1.ingestion.market_prices import load_market_prices
+from stage1.quant.quant_engine import run_quant_analysis
+from stage1.nlp.nlp_engine import run_nlp_analysis
+from stage1.synthesis.nti import compute_nti
+
+logging.basicConfig(level=logging.INFO)
+LOGGER = logging.getLogger("stage1-runner")
+
+
 def main() -> None:
     LOGGER.info("Stage 1 started")
 
@@ -86,3 +100,7 @@ def main() -> None:
         json.dump(diagnostics, f, indent=2)
 
     LOGGER.info("Stage 1 completed successfully")
+
+
+if __name__ == "__main__":
+    main()
