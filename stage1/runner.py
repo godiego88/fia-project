@@ -1,32 +1,3 @@
-"""
-Stage 1 Runner — High-Entropy Signal Compression Engine
-
-Authoritative orchestration layer.
-This runner is intentionally INTELLIGENCE-DENSE.
-
-Responsibilities:
-- Multi-resolution quant regime coordination
-- Cross-asset topology construction
-- Temporal NTI dynamics (Δ, Δ², regime breaks)
-- Hard-gated synthesis (no averaging)
-- Rich diagnostics for Stage 2
-"""
-
-import json
-import logging
-from datetime import datetime, timezone
-
-from stage1.ingestion.universe_loader import load_universe_from_google_sheets
-from stage1.ingestion.market_prices import load_market_prices
-
-from stage1.quant.quant_engine import run_quant_analysis
-from stage1.nlp.nlp_engine import run_nlp_analysis
-from stage1.synthesis.nti import compute_nti
-
-logging.basicConfig(level=logging.INFO)
-LOGGER = logging.getLogger("stage1-runner")
-
-
 def main() -> None:
     LOGGER.info("Stage 1 started")
 
@@ -37,18 +8,19 @@ def main() -> None:
     if not universe:
         raise RuntimeError("Universe resolution failed")
 
-    tickers = [u["ticker"] for u in universe]
-
     # ------------------------------------------------------------------
-    # 2. Market ingestion (no silent drops)
+    # 2. Market ingestion (STRUCTURED IN → NO SILENT DROPS)
     # ------------------------------------------------------------------
-    market = load_market_prices(tickers)
+    market = load_market_prices(universe)
 
     prices = {
-        ticker: data["latest_price"]
+        ticker: data["price_series"]
         for ticker, data in market.items()
-        if data["status"] == "ok"
+        if data["status"] == "ok" and data["price_series"] is not None
     }
+
+    if not prices:
+        raise RuntimeError("No valid price series available for quant engine")
 
     # ------------------------------------------------------------------
     # 3. Quant engine (multi-resolution, topology-aware)
@@ -65,7 +37,7 @@ def main() -> None:
     # 4. NLP engine (temporal + cross-asset aware)
     # ------------------------------------------------------------------
     nlp = run_nlp_analysis(
-        universe=universe,
+        universe=[u["ticker"] for u in universe],
         short_horizon_days=7,
         long_horizon_days=45,
         detect_sentiment_shifts=True,
@@ -114,7 +86,3 @@ def main() -> None:
         json.dump(diagnostics, f, indent=2)
 
     LOGGER.info("Stage 1 completed successfully")
-
-
-if __name__ == "__main__":
-    main()
