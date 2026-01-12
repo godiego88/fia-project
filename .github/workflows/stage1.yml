@@ -1,14 +1,17 @@
-name: Stage 1
+name: FIA Stage 1 — Signal Compression
 
 on:
-  workflow_dispatch:
   schedule:
-    - cron: "0 */6 * * *"   # 4x per day, deterministic
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
 
 jobs:
   stage1:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+
+    defaults:
+      run:
+        working-directory: fia-project
 
     steps:
       - name: Checkout repository
@@ -25,28 +28,19 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run Stage 1
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           python -m stage1.runner
 
-      # --------------------------------------------------
-      # ARTIFACTS — MUST EXIST EVEN IF STAGE 1 FAILS
-      # --------------------------------------------------
-
-      - name: Upload trigger context
-        if: always()
+      - name: Upload trigger_context
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: trigger_context
           path: trigger_context.json
-          if-no-files-found: error
 
-      - name: Upload Stage 1 debug context
-        if: always()
+      - name: Upload stage1_debug
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: stage1_debug
           path: stage1_debug.json
-          if-no-files-found: error
