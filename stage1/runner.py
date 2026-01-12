@@ -32,7 +32,7 @@ def main() -> None:
     tickers = [u["ticker"] for u in universe]
 
     # ------------------------------------------------------------------
-    # 2. Market ingestion (STRUCTURED IN → NO SILENT DROPS)
+    # 2. Market ingestion (NO SILENT DROPS)
     # ------------------------------------------------------------------
     market = load_market_prices(tickers)
 
@@ -43,10 +43,10 @@ def main() -> None:
     }
 
     if not prices:
-        raise RuntimeError("No valid price series available for quant engine")
+        LOGGER.error("No valid price series available — proceeding with full penalty")
 
     # ------------------------------------------------------------------
-    # 3. Quant engine (multi-resolution, topology-aware)
+    # 3. Quant engine (runs even under collapse)
     # ------------------------------------------------------------------
     quant = run_quant_analysis(
         prices=prices,
@@ -57,7 +57,7 @@ def main() -> None:
     )
 
     # ------------------------------------------------------------------
-    # 4. NLP engine (temporal + cross-asset aware)
+    # 4. NLP engine
     # ------------------------------------------------------------------
     nlp = run_nlp_analysis(
         universe=tickers,
@@ -68,7 +68,7 @@ def main() -> None:
     )
 
     # ------------------------------------------------------------------
-    # 5. NTI synthesis — HARD GATED
+    # 5. NTI synthesis — HARD GATED, PENALTY AWARE
     # ------------------------------------------------------------------
     nti = compute_nti(
         quant_results=quant,
@@ -80,33 +80,38 @@ def main() -> None:
     )
 
     # ------------------------------------------------------------------
-    # 6. Emission (Stage 2 consumes directly)
+    # 6. Emission (ALWAYS)
     # ------------------------------------------------------------------
     timestamp = datetime.now(timezone.utc).isoformat()
 
-    trigger_context = {
-        "timestamp": timestamp,
-        "nti": nti["nti"],
-        "nti_delta": nti["delta"],
-        "nti_acceleration": nti["delta2"],
-        "regime_flags": nti["regime_flags"],
-        "confidence": nti["confidence"],
-    }
-
-    diagnostics = {
-        "timestamp": timestamp,
-        "universe": universe,
-        "market": market,
-        "quant": quant,
-        "nlp": nlp,
-        "nti_full": nti,
-    }
-
     with open("trigger_context.json", "w") as f:
-        json.dump(trigger_context, f, indent=2)
+        json.dump(
+            {
+                "timestamp": timestamp,
+                "nti": nti["nti"],
+                "nti_delta": nti["delta"],
+                "nti_acceleration": nti["delta2"],
+                "regime_flags": nti["regime_flags"],
+                "confidence": nti["confidence"],
+            },
+            f,
+            indent=2,
+        )
 
     with open("stage1_debug.json", "w") as f:
-        json.dump(diagnostics, f, indent=2)
+        json.dump(
+            {
+                "timestamp": timestamp,
+                "universe": universe,
+                "market": market,
+                "prices": prices,
+                "quant": quant,
+                "nlp": nlp,
+                "nti_full": nti,
+            },
+            f,
+            indent=2,
+        )
 
     LOGGER.info("Stage 1 completed successfully")
 
